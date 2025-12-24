@@ -111,3 +111,49 @@ Response Handlers::handleGET(const HttpRequest& req, const LocationConfig& loc) 
     Response r = make_200_ok(body, guess_content_type(physical));
     return r;
 }
+
+Response Handlers::handlePOST(const HttpRequest& req, const LocationConfig& loc)
+{
+    if (loc.upload_dir.empty())
+        return make_error_response(403, "Uploads not allowed.");
+
+    struct stat st;
+    if (stat(loc.upload_dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+        return make_error_response(404, "Upload directory not found.");
+
+    if (access(loc.upload_dir.c_str(), W_OK) != 0)
+        return make_error_response(403, "Upload directory not writable.");
+
+    if (req.body.size() > loc.client_max_body_size)
+        return make_error_response(413, "Payload Too Large.");
+
+    std::string filename = loc.upload_dir + "/upload.data";
+
+    int fd = open(filename.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0)
+        return make_error_response(500, strerror(errno));
+
+    size_t total = 0;
+    while (total < req.body.size())
+    {
+        ssize_t written = write(fd,
+            req.body.c_str() + total,
+            req.body.size() - total);
+
+        if (written < 0)
+        {
+            close(fd);
+            return make_error_response(500, strerror(errno));
+        }
+        total += written;
+    }
+
+    close(fd);
+
+    Response r;
+    r.status = 201;
+    r.status_message = "Created";
+    r.body = "<html><body><h1>Upload OK</h1></body></html>";
+    r.headers["Content-Type"] = "text/html";
+    return r;
+}
