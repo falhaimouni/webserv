@@ -3,10 +3,13 @@
 
 #include <string>
 #include <map>
+#include <iostream>
+#include <sstream>
+
 
 struct Response {
-    int status;  // 200, 404, 500...
-    std::string reason; // "OK", "Not Found"
+    int status;
+    std::string reason;
 
     std::map<std::string, std::string> headers;
     std::string body;

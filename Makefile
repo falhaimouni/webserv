@@ -3,7 +3,18 @@ CXXFLAGS = -Wall -Werror -Wextra -std=c++98
 NAME = webserver
 INCLUDES = -I./includes
 
-SRCS = srcs/response.cpp srcs/handlers.cpp srcs/autoindex.cpp srcs/main_test.cpp
+SRCS = main.cpp \
+	   srcs/handlers/StaticHandler.cpp \
+	   srcs/handlers/ErrorHandler.cpp \
+	   srcs/handlers/CGIHandler.cpp \
+	   srcs/handlers/ResponseBuilder.cpp \
+	   srcs/handlers/UploadHandler.cpp \
+	   srcs/handlers/getType.cpp \
+	   srcs/handlers/RequestParser.cpp \
+	   srcs/handlers/RequestRouter.cpp \
+	   srcs/handlers/RequestHandler.cpp \
+	   srcs/server/Server.cpp \
+	   
 OBJS = $(SRCS:srcs/%.cpp=objs/%.o)
 
 all: $(NAME)
@@ -12,7 +23,7 @@ $(NAME): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(OBJS) -o $(NAME)
 
 objs/%.o: srcs/%.cpp
-	@mkdir -p objs
+	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
