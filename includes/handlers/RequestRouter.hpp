@@ -9,6 +9,6 @@
 #include "RequestParser.hpp"
 #include "../shared/Response.hpp"
 
-Response routeRequest(const Request &req);
+Response routeRequest(const Request &req);  
 
 #endif

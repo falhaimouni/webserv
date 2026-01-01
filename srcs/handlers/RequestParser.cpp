@@ -4,33 +4,31 @@
 Request RequestParser::parse(const std::string &raw)
 {
     Request req;
-    std::string line;
-    std::string body;
-    std::istringstream iss(raw);
 
-    if (std::getline(iss, line))
+    size_t pos1 = raw.find(' ');
+    if (pos1 == std::string::npos)
+        return req;
+    req.method = raw.substr(0, pos1);
+
+    size_t pos2 = raw.find(' ', pos1 + 1);
+    if (pos2 == std::string::npos)
+        return req;
+    req.path = raw.substr(pos1 + 1, pos2 - pos1 - 1);
+    size_t body_pos = raw.find("\r\n\r\n");
+    if (body_pos != std::string::npos)
     {
-        std::istringstream lineStream(line);
-        lineStream >> req.method >> req.path >> req.version;
+        req.body = raw.substr(body_pos + 4);
     }
-    while (std::getline(iss, line) && line != "\r")
+    if (!req.path.empty() && req.path[req.path.size() - 1] == '\r')
+        req.path.resize(req.path.size() - 1);
+
+    if (!req.body.empty())
     {
-        size_t colonPos = line.find(':');
-        if (colonPos != std::string::npos)
+        while (req.body.size() > 0 && 
+              (req.body[req.body.size() - 1] == '\r' || req.body[req.body.size() - 1] == '\n'))
         {
-            std::string key = line.substr(0, colonPos);
-            std::string value = line.substr(colonPos + 1);
-            if (!value.empty() && value[0] == ' ')
-                value.erase(0, 1);
-            if (!value.empty() && value[value.size() - 1] == '\r')
-                value.resize(value.size() - 1);
-            req.headers[key] = value;
+            req.body.resize(req.body.size() - 1);
         }
     }
-    while (std::getline(iss, line))
-        body += line + "\n";
-    if (!body.empty() && body[body.size() - 1] == '\n')
-        body.resize(body.size() - 1);
-    req.body = body;
     return req;
 }

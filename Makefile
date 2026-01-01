@@ -13,6 +13,7 @@ SRCS = main.cpp \
 	   srcs/handlers/RequestParser.cpp \
 	   srcs/handlers/RequestRouter.cpp \
 	   srcs/handlers/RequestHandler.cpp \
+	   srcs/handlers/DirectoryHandler.cpp \
 	   srcs/server/Server.cpp \
 	   
 OBJS = $(SRCS:srcs/%.cpp=objs/%.o)
