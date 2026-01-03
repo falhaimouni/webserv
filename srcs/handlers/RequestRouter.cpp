@@ -28,11 +28,16 @@ Response routeRequest(const Request &req)
     if (stat(fullPath.c_str(), &st) != 0)
         return ErrorHandler::handleError(404, "Not Found");
 
-    // Directory request
-    if (S_ISDIR(st.st_mode))
-        return DirectoryHandler::handle(fullPath, req.path);
+    bool autoindex = true; // 🔧 later from config
 
-    // File request
+    if (S_ISDIR(st.st_mode))
+    {
+        if (!autoindex)
+            return ErrorHandler::handleError(403, "Autoindex Off");
+
+        return DirectoryHandler::handle(fullPath, req.path);
+    }
+
     if (req.method == "GET")
         return StaticHandler::handleStaticReq(fullPath);
 
