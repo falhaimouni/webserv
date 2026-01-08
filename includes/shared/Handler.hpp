@@ -10,6 +10,7 @@ public:
     virtual ~Handler() {}
     virtual Response handle(const Request& req,
                             const LocationConfig& loc) = 0;
+    //B gives C request and LocationConfig
 };
 
 #endif

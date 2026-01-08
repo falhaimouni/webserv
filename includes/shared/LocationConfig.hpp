@@ -3,7 +3,7 @@
 
 #include <string>
 #include <set>
-
+//A creates this 
 struct LocationConfig {
     std::string path;              // "/upload"
     std::string root;              // "./www"
