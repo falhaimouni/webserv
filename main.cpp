@@ -43,26 +43,21 @@ std::string parse_request(const std::string &request);
 // }
 
 
+#include "includes/server/Server.hpp"
+#include <iostream>
+
 int main()
 {
-    Server server(8080);
-    try {
-        server.socketSetup(); // create, bind, listen, non-blocking
-    } catch (std::runtime_error &e) {
-        std::cerr << "Server setup failed: " << e.what() << std::endl;
-        return 1;
-    }
-
-    std::cout << "Server running on port 8080...\n";
-
-    while (true)
+    try
     {
-        server.acceptConnections(); // accept clients
-
-        // For each accepted client, read request, parse, route, send response
-        // (use your RequestParser + routeRequest + ResponseBuilder)
+        Server server(8080);
+        server.socketSetup();
+        server.run();
     }
-
-    return 0;
+    catch (std::exception &e)
+    {
+        std::cerr << e.what() << std::endl;
+    }
 }
+
 

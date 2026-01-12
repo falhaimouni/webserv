@@ -8,7 +8,9 @@
 #include "ResponseBuilder.hpp"
 #include "RequestParser.hpp"
 #include "../shared/Response.hpp"
+#include "../shared/LocationConfig.hpp"
 
-Response routeRequest(const Request &req);  
+Response routeRequest(const Request &req);
+Response routeRequest(const Request &req, const LocationConfig &config);
 
 #endif
