@@ -1,4 +1,4 @@
-#include "HttpParser.hpp"
+#include "../../includes/router/HttpParser.hpp"
 
 HttpParser::HttpParser() : state(REQUEST_LINE), buffer("")
 {
@@ -52,6 +52,12 @@ bool HttpParser::parseRequestLine()
         return true;
     }
 
+    std::string extra;
+    if (iss >> extra)
+    {
+        state = ERROR;
+        return true;
+    }
     if (!validateMethod() || !validateVersion())
     {
         state = ERROR;
@@ -84,15 +90,12 @@ bool HttpParser::parseHeaders()
 
                 int contentlength;
                 std::istringstream iss(request.headers["Content-Length"]);
-                if (!(iss >> contentlength) || contentlength < 0)
+                if (!(iss >> contentlength) || contentlength < 0 || !iss.eof())
                 {
                     state = ERROR;
                     return true;
                 }
-                if (contentlength == 0)
-                    state = COMPLETE;
-                else
-                    state = BODY;
+                state = BODY;
             }
             else //GET or DELETE
             {
@@ -109,6 +112,13 @@ bool HttpParser::parseHeaders()
         }
         std::string key = trim(line.substr(0, colon));
         std::string value = trim(line.substr(colon + 1));
+
+        if (key.empty())
+        {
+            state = ERROR;
+            return true;
+        }
+
         request.headers[key] = value;
     }
 }
@@ -116,8 +126,10 @@ bool HttpParser::parseHeaders()
 //Read exactly Content-Length bytes
 bool HttpParser::parseBody()
 {
-    std::map<std::string,std::string>::iterator it = request.headers.find("Content-Length");
-    if (it == request.headers.end()) // content-length missing
+    std::map<std::string, std::string>::iterator it =
+        request.headers.find("Content-Length");
+
+    if (it == request.headers.end())
     {
         state = ERROR;
         return true;
@@ -125,17 +137,33 @@ bool HttpParser::parseBody()
 
     int contentlength;
     std::istringstream iss(it->second);
-    if (!(iss >> contentlength) || contentlength < 0)
+
+    // parse integer AND ensure nothing extra exists
+    if (!(iss >> contentlength) || contentlength < 0 || !iss.eof())
     {
         state = ERROR;
         return true;
     }
 
+    // not enough body yet → wait
     if (buffer.size() < static_cast<size_t>(contentlength))
         return false;
 
+    // STRICT CHECK: body must be EXACTLY Content-Length
+    if (buffer.size() != static_cast<size_t>(contentlength))
+    {
+        state = ERROR;
+        return true;
+    }
+
     request.body = buffer.substr(0, contentlength);
     buffer.erase(0, contentlength);
+
+    if (!buffer.empty())
+    {
+        state = ERROR;
+        return true;
+    }
 
     state = COMPLETE;
     return true;

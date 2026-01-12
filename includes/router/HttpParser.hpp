@@ -1,7 +1,7 @@
 #ifndef HTTP_PARSER_HPP
 #define HTTP_PARSER_HPP
 
-#include "shared/Request.hpp"
+#include "../shared/Request.hpp"
 #include <string>
 #include <sstream>
 

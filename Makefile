@@ -7,6 +7,7 @@ SRCS = \
 	main.cpp \
 	srcs/http/HttpParser.cpp \
 	srcs/http/ValAndHelper.cpp \
+	srcs/client/ClientManager.cpp \
 
 OBJS = $(SRCS:srcs/%.cpp=objs/%.o)
 

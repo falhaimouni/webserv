@@ -1,3 +1,3 @@
-DELETE /resource/42 HTTP/1.1
+DELETE /resource/42 HTTP/1.0
 Host: example.com
 

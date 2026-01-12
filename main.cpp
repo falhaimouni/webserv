@@ -1,66 +1,73 @@
 #include <iostream>
-#include <fstream>
 #include <string>
-#include "srcs/http/HttpParser.hpp"
+#include "includes/router/ClientManager.hpp"
 
-int main(int argc, char** argv)
-{
-    if (argc != 2)
-    {
-        std::cerr << "Usage: " << argv[0] << " <http_request_file>\n";
-        return 1;
+// Helper: feed data in small chunks (simulate TCP)
+void feedInChunks(ClientManager &cm, int fd, const std::string &data, size_t chunkSize) {
+    for (size_t i = 0; i < data.size(); i += chunkSize) {
+        cm.onData(fd, data.substr(i, chunkSize));
+    }
+}
+
+int main() {
+    ClientManager cm;
+
+    // 1️⃣ Add multiple clients
+    cm.addClient(1);
+    cm.addClient(2);
+    cm.addClient(3);
+    cm.addClient(4);
+
+    std::cout << "Added 4 clients.\n";
+
+    // 2️⃣ Good GET request (client 1)
+    std::string goodGET = "GET / HTTP/1.0\r\nHost: a\r\n\r\n";
+    feedInChunks(cm, 1, goodGET, 5);
+
+    std::cout << "Client 1: " << (cm.hasRequest(1) ? "complete ✅" : "not complete ❌") << "\n";
+
+    // 3️⃣ Good POST request (client 2)
+    std::string goodPOST = "POST /submit HTTP/1.0\r\nHost: b\r\nContent-Length: 5\r\n\r\nhello";
+    feedInChunks(cm, 2, goodPOST, 7);
+
+    std::cout << "Client 2: " << (cm.hasRequest(2) ? "complete ✅" : "not complete ❌") << "\n";
+
+    // 4️⃣ Malformed request (client 3) → should stay incomplete or error
+    std::string badReq = "DELETE /resource HTTP/1.0 hello\r\nHost:\r\n\r\n";
+    feedInChunks(cm, 3, badReq, 6);
+
+    std::cout << "Client 3 (bad request): " 
+              << (cm.hasRequest(3) ? "complete ❌ (should fail!)" : "not complete ✅") << "\n";
+
+    // 5️⃣ POST request with wrong Content-Length (client 4)
+    std::string wrongCL = "POST /upload HTTP/1.0\r\nHost: d\r\nContent-Length: 10\r\n\r\nabc";
+    feedInChunks(cm, 4, wrongCL, 5);
+
+    std::cout << "Client 4 (wrong CL): "
+              << (cm.hasRequest(4) ? "complete ❌ (should fail!)" : "not complete ✅") << "\n";
+
+    // 6️⃣ Reset client 2
+    cm.reset(2);
+    std::cout << "Client 2 reset: " << (!cm.hasRequest(2) ? "works ✅" : "failed ❌") << "\n";
+
+    // 7️⃣ Remove client 1
+    cm.removeClient(1);
+    std::cout << "Client 1 removed: " << (!cm.hasRequest(1) ? "works ✅" : "failed ❌") << "\n";
+
+    // 8️⃣ Feed unknown FD (99)
+    cm.onData(99, "GET / HTTP/1.0\r\n\r\n");
+    std::cout << "Unknown FD ignored ✅\n";
+
+    // 9️⃣ Check parsed requests
+    if (cm.hasRequest(2)) {
+        Request r2 = cm.getRequest(2);
+        std::cout << "Client 2 parsed path: " << r2.path << "\n";
+    }
+    if (cm.hasRequest(1)) {
+        Request r1 = cm.getRequest(1);
+        std::cout << "Client 1 parsed path: " << r1.path << "\n";
     }
 
-    // 🔹 Read the file as binary to preserve CRLF exactly
-    std::ifstream file(argv[1], std::ios::binary);
-    if (!file)
-    {
-        std::cerr << "Failed to open file: " << argv[1] << "\n";
-        return 1;
-    }
-
-    std::string buffer(
-        (std::istreambuf_iterator<char>(file)),
-        std::istreambuf_iterator<char>()
-    );
-
-    HttpParser parser;
-
-    // 🔹 Feed the buffer to the parser
-    parser.feed(buffer);
-
-    if (parser.hasError())
-    {
-        std::cout << "Parsing failed: ERROR\n";
-        return 1;
-    }
-
-    if (!parser.isComplete())
-    {
-        std::cout << "Parsing incomplete: waiting for more data\n";
-        return 1;
-    }
-
-    // 🔹 Print the parsed request
-    const Request& req = parser.getRequest();
-
-    std::cout << "==== PARSED REQUEST ====\n";
-    std::cout << "Method  : " << req.method << "\n";
-    std::cout << "Path    : " << req.path << "\n";
-    std::cout << "Version : " << req.version << "\n";
-
-    std::cout << "\nHeaders:\n";
-    for (std::map<std::string, std::string>::const_iterator it = req.headers.begin();
-         it != req.headers.end(); ++it)
-    {
-        std::cout << it->first << ": " << it->second << "\n";
-    }
-
-    std::cout << "\nBody:\n";
-    if (req.body.empty())
-        std::cout << "(empty)\n";
-    else
-        std::cout << req.body << "\n";
-
+    std::cout << "ClientManager + Parser end-to-end test completed.\n";
     return 0;
 }
