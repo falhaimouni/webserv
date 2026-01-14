@@ -1,13 +1,14 @@
 CXX = c++
-CXXFLAGS = -Wall -Werror -Wextra -std=c++98
+CXXFLAGS = -Wall -Werror -Wextra
 NAME = webserver
 INCLUDES = -I./includes
 
 SRCS = \
 	main.cpp \
-	srcs/http/HttpParser.cpp \
-	srcs/http/ValAndHelper.cpp \
-	srcs/client/ClientManager.cpp \
+    srcs/http/HttpParser.cpp \
+    srcs/http/ValAndHelper.cpp \
+    srcs/client/ClientManager.cpp \
+    srcs/routing/Router.cpp
 
 OBJS = $(SRCS:srcs/%.cpp=objs/%.o)
 

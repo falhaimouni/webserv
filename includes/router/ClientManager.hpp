@@ -4,7 +4,7 @@
 #include <map>
 #include <new> // std::bad_alloc
 #include <iostream>
-#include "shared/Request.hpp"
+#include "../shared/Request.hpp"
 #include "HttpParser.hpp"
 
 struct ClientState {
@@ -16,9 +16,11 @@ public:
     void addClient(int fd); // called when accept(), create new clientStatus with fresh HTTPparser
     void removeClient(int fd); //when client disconnects, error, or connection closed
     void onData(int fd, const std::string& bytes); // called whenever poll() tells you there is data for this client, (bridge between sockets and parsing)
-    bool hasRequest(int fd); // check if the request is complete
-    Request getRequest(int fd); //return the parsed request only valid after hasRequest is true
+    bool hasRequest(int fd) const; // check if the request is complete
+    const Request& getRequest(int fd) const; //return the parsed request only valid after hasRequest is true
+    bool hasError(int fd); // check if there was a parsing error
     void reset(int fd); // after response is sent
+    int getErrorStatus(int fd);
 
 private:
     std::map<int, ClientState> clients; //owner of all connected clients

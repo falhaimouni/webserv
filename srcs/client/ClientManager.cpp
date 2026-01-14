@@ -39,7 +39,7 @@ void ClientManager::onData(int fd, const std::string& bytes)
     clients[fd].parser.feed(bytes);
 }
 
-bool ClientManager::hasRequest(int fd)
+bool ClientManager::hasRequest(int fd) const
 {
     if (clients.count(fd))
     {
@@ -48,14 +48,16 @@ bool ClientManager::hasRequest(int fd)
     return false;
 }
 
-Request ClientManager::getRequest(int fd)
+const Request& ClientManager::getRequest(int fd) const
 {
+    static const Request empty; // can't be modified
+
     if (hasRequest(fd))
     {
         return (clients.at(fd).parser.getRequest());
     }
     //empty request if it is not completed or exists
-    return Request();
+    return (empty);
 }
 
 void ClientManager::reset(int fd)
@@ -64,4 +66,20 @@ void ClientManager::reset(int fd)
     {
         clients[fd].parser.reset();
     }
+}
+
+bool ClientManager::hasError(int fd)
+{
+    if (clients.count(fd))
+    {
+        return (clients.at(fd).parser.hasError());
+    }
+    return false;
+}
+
+int ClientManager::getErrorStatus(int fd)
+{
+    if (clients.count(fd))
+        return clients.at(fd).parser.getErrorStatus();
+    return HTTP_INTERNAL_SERVER_ERROR;  // 500 - shouldn't happen
 }

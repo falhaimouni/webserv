@@ -1,6 +1,6 @@
 #include "../../includes/router/HttpParser.hpp"
 
-HttpParser::HttpParser() : state(REQUEST_LINE), buffer("")
+HttpParser::HttpParser() : headerCount(0), state(REQUEST_LINE),buffer(""), errorStatus(HTTP_OK)
 {
     request.method = "";
     request.path = "";
@@ -34,12 +34,27 @@ void HttpParser::feed(const std::string& chunk)
     }
 }
 
-
 bool HttpParser::parseRequestLine()
 {
     size_t sep = buffer.find("\r\n");
     if (sep == std::string::npos)
+    {
+        if (buffer.size() > MAX_LINE_SIZE)
+        {
+            state = ERROR;
+            errorStatus = HTTP_REQUEST_URI_TOO_LONG; //414
+            return (true);
+        }
         return (false);
+    }
+
+    if (sep > MAX_LINE_SIZE)
+    {
+        state = ERROR;
+        errorStatus = HTTP_REQUEST_URI_TOO_LONG;
+        return true;
+    }
+
     std::string line = buffer.substr(0, sep);
     buffer.erase(0, sep + 2);
 
@@ -49,6 +64,7 @@ bool HttpParser::parseRequestLine()
     if (!(iss >> request.method >> request.path >> request.version))
     {
         state = ERROR;
+        errorStatus = HTTP_BAD_REQUEST; //400
         return true;
     }
 
@@ -56,11 +72,13 @@ bool HttpParser::parseRequestLine()
     if (iss >> extra)
     {
         state = ERROR;
+        errorStatus = HTTP_BAD_REQUEST; //400
         return true;
     }
     if (!validateMethod() || !validateVersion())
     {
         state = ERROR;
+        errorStatus = HTTP_BAD_REQUEST;
         return true;
     }
     state = HEADERS;
@@ -74,31 +92,42 @@ bool HttpParser::parseHeaders()
     {
         size_t sep = buffer.find("\r\n");
         if (sep == std::string::npos)
+        {
+            if (buffer.size() > MAX_LINE_SIZE)
+            {
+                state = ERROR;
+                errorStatus = HTTP_REQUEST_HEADER_FIELDS_TOO_LARGE; //431
+                return (true);
+            }
             return (false);
+        }
         std::string line = buffer.substr(0, sep);
         buffer.erase(0, sep + 2);
     
         if (line.empty()) //end of headers
         {
-            if (request.method == "POST")
+            // Check if ANY method has Content-Length
+            if (request.headers.count("content-length"))
             {
-                if (!request.headers.count("Content-Length"))
-                {
-                    state = ERROR;
-                    return true;
-                }
-
                 int contentlength;
-                std::istringstream iss(request.headers["Content-Length"]);
+                std::istringstream iss(request.headers["content-length"]);
                 if (!(iss >> contentlength) || contentlength < 0 || !iss.eof())
                 {
                     state = ERROR;
+                    errorStatus = HTTP_BAD_REQUEST;
                     return true;
                 }
                 state = BODY;
             }
-            else //GET or DELETE
+            else
             {
+                // No body
+                if (request.method == "POST")
+                {
+                    state = ERROR; // POST without Content-Length is invalid
+                    errorStatus = HTTP_LENGTH_REQUIRED; //411
+                    return true;
+                }
                 state = COMPLETE;
             }
             return true;
@@ -108,18 +137,33 @@ bool HttpParser::parseHeaders()
         if (colon == std::string::npos)
         {
             state = ERROR;
+            errorStatus = HTTP_BAD_REQUEST;
             return true;
         }
+
+        headerCount++;
+        if (headerCount > MAX_HEADERS)
+        {
+            state = ERROR;
+            errorStatus = HTTP_REQUEST_HEADER_FIELDS_TOO_LARGE; //431
+            return true;
+        }
+
         std::string key = trim(line.substr(0, colon));
         std::string value = trim(line.substr(colon + 1));
 
         if (key.empty())
         {
             state = ERROR;
+            errorStatus = HTTP_BAD_REQUEST;
             return true;
         }
 
-        request.headers[key] = value;
+        for (size_t i = 0; i < key.size(); ++i)
+            key[i] = std::tolower(static_cast<unsigned char>(key[i]));
+        
+        if (request.headers.find(key) == request.headers.end()) //in case of duplicate headers keep first
+            request.headers[key] = value;
     }
 }
 
@@ -127,43 +171,42 @@ bool HttpParser::parseHeaders()
 bool HttpParser::parseBody()
 {
     std::map<std::string, std::string>::iterator it =
-        request.headers.find("Content-Length");
+        request.headers.find("content-length");
 
     if (it == request.headers.end())
     {
         state = ERROR;
+        errorStatus = HTTP_LENGTH_REQUIRED; //411
         return true;
     }
 
     int contentlength;
     std::istringstream iss(it->second);
 
-    // parse integer AND ensure nothing extra exists
     if (!(iss >> contentlength) || contentlength < 0 || !iss.eof())
     {
         state = ERROR;
+        errorStatus = HTTP_BAD_REQUEST;
         return true;
     }
 
-    // not enough body yet → wait
+    if (contentlength > static_cast<int>(MAX_BODY_SIZE))
+    {
+        state = ERROR;
+        errorStatus = HTTP_PAYLOAD_TOO_LARGE; //413
+        return true;
+    }
+
+    // Wait for enough data
     if (buffer.size() < static_cast<size_t>(contentlength))
         return false;
 
-    // STRICT CHECK: body must be EXACTLY Content-Length
-    if (buffer.size() != static_cast<size_t>(contentlength))
-    {
-        state = ERROR;
-        return true;
-    }
-
+    // Extract EXACTLY Content-Length bytes
     request.body = buffer.substr(0, contentlength);
     buffer.erase(0, contentlength);
-
-    if (!buffer.empty())
-    {
-        state = ERROR;
-        return true;
-    }
+    
+    // buffer may still have data (next request) - this is OK!
+    // It will be processed after reset()
 
     state = COMPLETE;
     return true;

@@ -12,7 +12,7 @@ bool HttpParser::validateVersion()
     return true;
 }
 
-std::string trim(const std::string& str)
+std::string HttpParser::trim(const std::string& str)
 {
   size_t start = str.find_first_not_of(" \t");
   if (start == std::string::npos)
@@ -40,10 +40,17 @@ const Request& HttpParser::getRequest() const
 void HttpParser::reset()
 {
     state = REQUEST_LINE;
-    buffer.clear();
+    // buffer.clear();
+    errorStatus = HTTP_OK;
     request.method.clear();
     request.path.clear();
     request.version.clear();
     request.headers.clear();
     request.body.clear();
+    headerCount = 0;
+}
+
+int HttpParser::getErrorStatus() const
+{
+    return errorStatus;
 }

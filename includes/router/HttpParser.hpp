@@ -2,6 +2,7 @@
 #define HTTP_PARSER_HPP
 
 #include "../shared/Request.hpp"
+#include "../shared/HttpStatus.hpp"
 #include <string>
 #include <sstream>
 
@@ -13,7 +14,15 @@ public:
     bool hasError() const; // when bad method/version
     const Request& getRequest() const; // returns parsed request, read only
     void reset(); //clear everything, used for keep alive/ next request on same fd
+    std::string trim(const std::string& str);
+    int getErrorStatus() const;
+
 private:
+    static const size_t MAX_LINE_SIZE = 8192; // Max request line or header line
+    static const size_t MAX_BODY_SIZE = 1048576; // 1MB default
+    static const size_t MAX_HEADERS = 100; // Max number of headers
+    size_t headerCount;
+
     enum State 
     { REQUEST_LINE,
     HEADERS,
@@ -26,6 +35,8 @@ private:
     std::string buffer; //recv() gives partial lines
     Request request; //holds method, path, version, headers, body
 
+    int errorStatus;
+
     bool parseRequestLine();
     bool parseHeaders();
     bool parseBody();
@@ -33,6 +44,5 @@ private:
     bool validateVersion();
 };
 
-std::string trim(const std::string& str);
 
 #endif
