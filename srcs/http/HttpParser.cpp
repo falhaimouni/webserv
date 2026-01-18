@@ -75,12 +75,20 @@ bool HttpParser::parseRequestLine()
         errorStatus = HTTP_BAD_REQUEST; //400
         return true;
     }
-    if (!validateMethod() || !validateVersion())
+    if (!validateVersion())
     {
         state = ERROR;
-        errorStatus = HTTP_BAD_REQUEST;
+        errorStatus = HTTP_VERSION_NOT_SUPPORTED; //505
         return true;
     }
+
+    if (!validateMethod())
+    {
+        state = ERROR;
+        errorStatus = HTTP_METHOD_NOT_ALLOWED; //405
+        return true;
+    }
+
     state = HEADERS;
     return true;
 }
