@@ -4,11 +4,14 @@
 #include <map>
 #include <new> // std::bad_alloc
 #include <iostream>
+#include <cstdlib> // rand()
+#include <ctime> // time()
 #include "../shared/Request.hpp"
 #include "HttpParser.hpp"
 
 struct ClientState {
     HttpParser parser; //each client has its own parser
+    std::string sessionID; //store session id for this client
 };
 
 class ClientManager {
@@ -21,6 +24,7 @@ public:
     bool hasError(int fd); // check if there was a parsing error
     void reset(int fd); // after response is sent
     int getErrorStatus(int fd);
+    void handleSession(int fd); //call after request is fully parsed
 
 private:
     std::map<int, ClientState> clients; //owner of all connected clients

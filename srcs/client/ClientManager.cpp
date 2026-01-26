@@ -19,7 +19,6 @@ void ClientManager::addClient(int fd)
             std::cerr << "Failed to allocate memory for client FD " << fd
                       << ": " << e.what() << "\n";
         }
-        
     }
 }
 
@@ -82,4 +81,35 @@ int ClientManager::getErrorStatus(int fd)
     if (clients.count(fd))
         return clients.at(fd).parser.getErrorStatus();
     return HTTP_INTERNAL_SERVER_ERROR;  // 500 - shouldn't happen
+}
+
+void ClientManager::handleSession(int fd)
+{
+    if (!hasRequest(fd))
+        return; //request not complete
+    
+    //get the parse request, to read the headers
+    Request& req = const_cast<Request&>(clients[fd].parser.getRequest());
+
+    //check if the request has a cookie header
+    std::string cookieHeader;
+    if (req.headers.count("cookie"))
+    {
+        cookieHeader = req.headers["cookie"];
+
+        //serch for session id = xxx
+        size_t pos = cookieHeader.find("session_id=");
+        if (pos != std::string::npos)
+        {
+            pos += 11;
+            size_t end = cookieHeader.find(';', pos);
+            clients[fd].sessionID = cookieHeader.substr(pos, end - pos);
+            return; //found session;
+        }
+    }
+
+    //if session id not found genetate a new one
+    //seed ensures rand() gives different nums each time
+    std::srand(std::time(nullptr) + fd); //seed with time + fd to reduce collisions between clients
+    clients[fd].sessionID = std::to_string(std::rand() % 1000000 + 100000);   
 }
