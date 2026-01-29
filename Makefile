@@ -15,23 +15,26 @@ SRCS = main.cpp \
 	   srcs/handlers/RequestHandler.cpp \
 	   srcs/handlers/DirectoryHandler.cpp \
 	   srcs/server/Server.cpp \
+	   srcs/routing/Router.cpp \
+	   srcs/http/HttpParser.cpp \
+	   srcs/http/ValAndHelper.cpp \
+	   srcs/client/ClientManager.cpp \
 	   
-OBJS = $(SRCS:srcs/%.cpp=objs/%.o)
+OBJS = $(SRCS:.cpp=.o)
 
 all: $(NAME)
 
 $(NAME): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(OBJS) -o $(NAME)
 
-objs/%.o: srcs/%.cpp
-	@mkdir -p $(dir $@)
+%.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
-	rm -rf objs
+	rm -f $(OBJS)
 
 fclean: clean
-	rm -rf $(NAME)
+	rm -f $(NAME)
 
 re: fclean all
 

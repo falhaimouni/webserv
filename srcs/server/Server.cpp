@@ -1,14 +1,51 @@
 #include "../../includes/server/Server.hpp"
-#include "../../includes/handlers/RequestParser.hpp"
 #include "../../includes/handlers/RequestRouter.hpp"
 #include "../../includes/handlers/ResponseBuilder.hpp"
+#include <cstring>
 
-Server::Server(int port) : _server_fd(-1), _port(port) {}
+Server::Server(int port) : _server_fd(-1), _port(port)
+{
+    initializeLocations();
+}
 
 Server::~Server()
 {
     if (_server_fd != -1)
         close(_server_fd);
+}
+
+void Server::initializeLocations()
+{
+    // Default location config
+    LocationConfig defaultLoc;
+    defaultLoc.path = "/";
+    defaultLoc.root = "./www";
+    defaultLoc.index = "index.html";
+    defaultLoc.autoindex = true;
+    defaultLoc.upload_store = "./uploads";
+    defaultLoc.is_cgi = false;
+    defaultLoc.methods.insert("GET");
+    defaultLoc.methods.insert("POST");
+    defaultLoc.methods.insert("DELETE");
+    defaultLoc.cgi_ext.insert(".py");
+    defaultLoc.cgi_ext.insert(".php");
+    defaultLoc.cgi_ext.insert(".pl");
+    defaultLoc.cgi_ext.insert(".sh");
+    
+    _locations.push_back(defaultLoc);
+    
+    // Upload location config
+    LocationConfig uploadLoc;
+    uploadLoc.path = "/upload";
+    uploadLoc.root = "./www";
+    uploadLoc.index = "index.html";
+    uploadLoc.autoindex = true;
+    uploadLoc.upload_store = "./uploads";
+    uploadLoc.is_cgi = false;
+    uploadLoc.methods.insert("POST");
+    uploadLoc.methods.insert("GET");
+    
+    _locations.push_back(uploadLoc);
 }
 
 void Server::socketSetup()
@@ -72,6 +109,9 @@ void Server::run()
                 cfd.revents = 0;
                 _fds.push_back(cfd);
 
+                // Add client to ClientManager
+                _clientManager.addClient(client_fd);
+
                 std::cout << "Accepted client fd: " << client_fd << std::endl;
             }
             // 🔵 Client request
@@ -82,6 +122,8 @@ void Server::run()
 
                 if (bytes <= 0)
                 {
+                    // Remove from ClientManager
+                    _clientManager.removeClient(_fds[i].fd);
                     close(_fds[i].fd);
                     _fds.erase(_fds.begin() + i);
                     --i;
@@ -90,21 +132,60 @@ void Server::run()
 
                 buffer[bytes] = '\0';
 
-                // 🔹 Parse
-                Request req = RequestParser::parse(buffer);
+                // 🔹 Feed data to ClientManager's parser
+                _clientManager.onData(_fds[i].fd, std::string(buffer, bytes));
 
-                // 🔹 Route
-                Response res = routeRequest(req);
+                // Check if we have a complete request
+                if (_clientManager.hasError(_fds[i].fd))
+                {
+                    // Handle parsing error
+                    int errorStatus = _clientManager.getErrorStatus(_fds[i].fd);
+                    Response errorRes = ErrorHandler::handleError(errorStatus, "");
+                    std::string raw = ResponseBuilder::formatResponse(errorRes);
+                    send(_fds[i].fd, raw.c_str(), raw.size(), 0);
+                    
+                    _clientManager.removeClient(_fds[i].fd);
+                    close(_fds[i].fd);
+                    _fds.erase(_fds.begin() + i);
+                    --i;
+                    continue;
+                }
 
-                // 🔹 Build response
-                std::string raw = ResponseBuilder::formatResponse(res);
+                if (_clientManager.hasRequest(_fds[i].fd))
+                {
+                    // 🔹 Get parsed request
+                    const Request& req = _clientManager.getRequest(_fds[i].fd);
 
-                // 🔹 Send
-                send(_fds[i].fd, raw.c_str(), raw.size(), 0);
+                    // 🔹 Route request to find matching location
+                    int routeStatus = HTTP_OK;
+                    const LocationConfig* matchedLoc = _router.route(req, _locations, routeStatus);
 
-                close(_fds[i].fd);
-                _fds.erase(_fds.begin() + i);
-                --i;
+                    Response res;
+                    
+                    if (matchedLoc == NULL)
+                    {
+                        // No matching location or method not allowed
+                        res = ErrorHandler::handleError(routeStatus, "");
+                    }
+                    else
+                    {
+                        // 🔹 Route to appropriate handler
+                        res = routeRequest(req, *matchedLoc);
+                    }
+
+                    // 🔹 Build and send response
+                    std::string raw = ResponseBuilder::formatResponse(res);
+                    send(_fds[i].fd, raw.c_str(), raw.size(), 0);
+
+                    // 🔹 Reset parser for potential keep-alive
+                    _clientManager.reset(_fds[i].fd);
+
+                    // Close connection (for now, no keep-alive)
+                    _clientManager.removeClient(_fds[i].fd);
+                    close(_fds[i].fd);
+                    _fds.erase(_fds.begin() + i);
+                    --i;
+                }
             }
         }
     }
