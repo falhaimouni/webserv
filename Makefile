@@ -1,26 +1,33 @@
-CXX = c++
-CXXFLAGS = -Wall -Werror -Wextra -std=c++98
-NAME = webserver
-INCLUDES = -I./includes
+NAME = webserv
 
-SRCS = srcs/response.cpp srcs/handlers.cpp srcs/autoindex.cpp srcs/main_test.cpp
-OBJS = $(SRCS:srcs/%.cpp=objs/%.o)
+CXX = c++
+CXXFLAGS = -Wall -Wextra -Werror -std=c++98
+
+INCLUDES = -Iinclude
+
+SRC = \
+	src/main.cpp \
+	src/server/ServerManager.cpp \
+	src/poll/Poller.cpp \
+	src/config/ConfigParser.cpp \
+	src/utils/Logger.cpp \
+	src/http/HttpHandler.cpp
+
+
+OBJ = $(SRC:.cpp=.o)
 
 all: $(NAME)
 
-$(NAME): $(OBJS)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(OBJS) -o $(NAME)
+$(NAME): $(OBJ)
+	$(CXX) $(CXXFLAGS) $(OBJ) -o $(NAME)
 
-objs/%.o: srcs/%.cpp
-	@mkdir -p objs
+%.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
-	rm -rf objs
+	rm -f $(OBJ)
 
 fclean: clean
-	rm -rf $(NAME)
+	rm -f $(NAME)
 
 re: fclean all
-
-.PHONY: all clean fclean re
