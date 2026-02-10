@@ -5,6 +5,8 @@
 #define HTTP_CREATED                201
 #define HTTP_NO_CONTENT             204
 
+#define HTTP_MOVED_PERMANENTLY      301
+
 #define HTTP_BAD_REQUEST            400
 #define HTTP_LENGTH_REQUIRED        411
 #define HTTP_PAYLOAD_TOO_LARGE      413

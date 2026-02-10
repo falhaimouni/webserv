@@ -30,6 +30,12 @@ const LocationConfig* Router::route(const Request& req,
         return NULL;
     }
 
+    if (!bestLocation->redirect_to.empty())
+    {
+        status = HTTP_MOVED_PERMANENTLY; //301
+        return bestLocation;
+    }
+
     //return 405
     if (!matchMethod(*bestLocation, req))
     {

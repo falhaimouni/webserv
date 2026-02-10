@@ -42,9 +42,10 @@ void ClientManager::onData(int fd, const std::string& bytes)
 
 bool ClientManager::hasRequest(int fd) const
 {
-    if (clients.count(fd))
+    std::map<int, ClientState>::const_iterator it = clients.find(fd);
+    if (it != clients.end())
     {
-        return (clients.at(fd).parser.isComplete());
+        return (it->second.parser.isComplete());
     }
     return false;
 }
@@ -53,9 +54,10 @@ const Request& ClientManager::getRequest(int fd) const
 {
     static const Request empty; // can't be modified
 
+    std::map<int, ClientState>::const_iterator it = clients.find(fd);
     if (hasRequest(fd))
     {
-        return (clients.at(fd).parser.getRequest());
+        return (it->second.parser.getRequest());
     }
     //empty request if it is not completed or exists
     return (empty);
@@ -71,17 +73,19 @@ void ClientManager::reset(int fd)
 
 bool ClientManager::hasError(int fd)
 {
-    if (clients.count(fd))
+    std::map<int, ClientState>::iterator it = clients.find(fd);
+    if (it != clients.end())
     {
-        return (clients.at(fd).parser.hasError());
+        return (it->second.parser.hasError());
     }
     return false;
 }
 
 int ClientManager::getErrorStatus(int fd)
 {
-    if (clients.count(fd))
-        return clients.at(fd).parser.getErrorStatus();
+    std::map<int, ClientState>::iterator it = clients.find(fd);
+    if (it != clients.end())
+        return it->second.parser.getErrorStatus();
     return HTTP_INTERNAL_SERVER_ERROR;  // 500 - shouldn't happen
 }
 
@@ -111,10 +115,6 @@ void ClientManager::handleSession(int fd)
     }
 
     //if session id not found genetate a new one
-    //seed ensures rand() gives different nums each time
-    std::srand(std::time(0) + fd); //seed with time + fd to reduce collisions between clients
-    
-    // Generate session ID using srand and rand
     char sessionBuf[16];
     std::sprintf(sessionBuf, "%d", (std::rand() % 1000000) + 100000);
     clients[fd].sessionID = std::string(sessionBuf);

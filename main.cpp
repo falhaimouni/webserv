@@ -15,6 +15,8 @@
 
 int main()
 {
+    std::srand(static_cast<unsigned>(std::time(NULL)));
+
     try
     {
         Server server(8080);

@@ -16,6 +16,7 @@ public:
     void reset(); //clear everything, used for keep alive/ next request on same fd
     std::string trim(const std::string& str);
     int getErrorStatus() const;
+    void processBuffer();
 
 private:
     static const size_t MAX_LINE_SIZE = 8192; // Max request line or header line
@@ -36,6 +37,8 @@ private:
     Request request; //holds method, path, version, headers, body
 
     int errorStatus;
+    bool isChunked;
+    size_t chunkSize;
 
     bool parseRequestLine();
     bool parseHeaders();

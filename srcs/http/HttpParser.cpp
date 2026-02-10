@@ -1,12 +1,13 @@
 #include "../../includes/router/HttpParser.hpp"
 
-HttpParser::HttpParser() : headerCount(0), state(REQUEST_LINE),buffer(""), errorStatus(HTTP_OK)
+HttpParser::HttpParser() : headerCount(0), chunkSize(0), state(REQUEST_LINE),buffer(""), errorStatus(HTTP_OK)
 {
     request.method = "";
     request.path = "";
     request.version = "";
     request.headers.clear();
     request.body = "";
+    isChunked = false;
 }
 
 //chunk is raw bytes from recv(), from A
@@ -109,6 +110,14 @@ bool HttpParser::parseHeaders()
             }
             return (false);
         }
+
+        if (sep > MAX_LINE_SIZE)
+        {
+            state = ERROR;
+            errorStatus = HTTP_REQUEST_HEADER_FIELDS_TOO_LARGE; //431
+            return true;
+        }
+
         std::string line = buffer.substr(0, sep);
         buffer.erase(0, sep + 2);
     
@@ -117,7 +126,7 @@ bool HttpParser::parseHeaders()
             // Check if ANY method has Content-Length
             if (request.headers.count("content-length"))
             {
-                int contentlength;
+                long long contentlength;
                 std::istringstream iss(request.headers["content-length"]);
                 if (!(iss >> contentlength) || contentlength < 0 || !iss.eof())
                 {
@@ -172,12 +181,91 @@ bool HttpParser::parseHeaders()
         
         if (request.headers.find(key) == request.headers.end()) //in case of duplicate headers keep first
             request.headers[key] = value;
+        
+        if (key == "transfer-encoding" && value.find("chunked") != std::string::npos)
+            isChunked = true;
     }
 }
 
 //Read exactly Content-Length bytes
 bool HttpParser::parseBody()
 {
+    if (isChunked == true)
+    {
+        if (request.headers.count("content-length"))
+        {
+            state = ERROR;
+            errorStatus = HTTP_BAD_REQUEST; //400
+            return true;
+        }        
+        
+        while (true)
+        {
+            if (chunkSize == 0)
+            {
+                size_t sep = buffer.find("\r\n");
+                if (sep == std::string::npos)
+                    return (false);
+    
+                std::string data = buffer.substr(0, sep);
+                buffer.erase(0, sep + 2);
+
+                std::istringstream iss(data);
+                iss >> std::hex >> chunkSize;
+
+                if (!iss.eof() || iss.fail())
+                {
+                    state = ERROR;
+                    errorStatus = HTTP_BAD_REQUEST; //400
+                    return true;
+                }
+
+                if (chunkSize == 0)
+                {
+                    if(buffer.size() < 2)
+                        return false;
+
+                    if(buffer.substr(0, 2) != "\r\n")
+                    {
+                        state = ERROR;
+                        errorStatus = HTTP_BAD_REQUEST; //400
+                        return true;
+                    }
+                    buffer.erase(0, 2);
+                    state = COMPLETE;
+                    return true;
+                }
+            }
+    
+            else
+            {
+                if (buffer.size() < chunkSize + 2)
+                {
+                    return false;
+                }
+                if (buffer[chunkSize] != '\r' || buffer[chunkSize + 1] != '\n')
+                {
+                    state = ERROR;
+                    errorStatus = HTTP_BAD_REQUEST; //400
+                    return true;
+                }                
+
+                //append exact chunk bytes
+                request.body.append(buffer, 0, chunkSize);
+
+                if (request.body.size() > MAX_BODY_SIZE)
+                {
+                    state = ERROR;
+                    errorStatus = HTTP_PAYLOAD_TOO_LARGE; //413
+                    return true;
+                }
+
+                buffer.erase(0, chunkSize + 2);
+                chunkSize = 0;
+            }
+        }
+    }
+
     std::map<std::string, std::string>::iterator it =
         request.headers.find("content-length");
 
@@ -188,7 +276,7 @@ bool HttpParser::parseBody()
         return true;
     }
 
-    int contentlength;
+    long long contentlength;
     std::istringstream iss(it->second);
 
     if (!(iss >> contentlength) || contentlength < 0 || !iss.eof())
@@ -198,7 +286,7 @@ bool HttpParser::parseBody()
         return true;
     }
 
-    if (contentlength > static_cast<int>(MAX_BODY_SIZE))
+    if (contentlength > static_cast<long long>(MAX_BODY_SIZE))
     {
         state = ERROR;
         errorStatus = HTTP_PAYLOAD_TOO_LARGE; //413
@@ -213,9 +301,31 @@ bool HttpParser::parseBody()
     request.body = buffer.substr(0, contentlength);
     buffer.erase(0, contentlength);
     
-    // buffer may still have data (next request) - this is OK!
+    // buffer may still have data (next request)
     // It will be processed after reset()
 
     state = COMPLETE;
     return true;
+}
+
+void HttpParser::processBuffer()
+{
+    while (state != COMPLETE && state != ERROR)
+    {
+        if (state == REQUEST_LINE)
+        {
+            if (!parseRequestLine())
+                break;
+        }
+        else if (state == HEADERS)
+        {
+            if (!parseHeaders())
+                break;
+        }
+        else if (state == BODY)
+        {
+            if (!parseBody())
+                break;
+        }
+    }
 }

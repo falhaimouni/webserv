@@ -46,6 +46,10 @@ void HttpParser::reset()
     request.headers.clear();
     request.body.clear();
     headerCount = 0;
+    isChunked = false;
+    chunkSize = 0;
+    // buffer may contain next request
+    processBuffer();
 }
 
 int HttpParser::getErrorStatus() const
