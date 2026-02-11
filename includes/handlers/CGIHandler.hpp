@@ -12,7 +12,7 @@
 class CGIHandler
 {
 private:
-    static std::string getInterpreter(const std::string &scriptPath, const LocationConfig &config);
+    static std::string getFileExt(const std::string &scriptPath, const LocationConfig &config);
     static std::vector<std::string> buildEnvVars(const Request &req, const std::string &scriptPath, const LocationConfig &config);
     static char** envToArray(const std::vector<std::string> &envVars);
     static void freeEnvArray(char **envArray);

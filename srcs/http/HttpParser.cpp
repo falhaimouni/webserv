@@ -1,6 +1,6 @@
 #include "../../includes/router/HttpParser.hpp"
 
-HttpParser::HttpParser() : headerCount(0), chunkSize(0), state(REQUEST_LINE),buffer(""), errorStatus(HTTP_OK)
+HttpParser::HttpParser() : headerCount(0), state(REQUEST_LINE),buffer(""), errorStatus(HTTP_OK) , chunkSize(0)
 {
     request.method = "";
     request.path = "";
