@@ -15,17 +15,7 @@
 #include <iostream>
 #include <poll.h>
 
-// static int g_cgiPid = -1;
 
-// static void cgiTimeoutHandler(int sig)
-// {
-// 	(void)sig;
-// 	if (g_cgiPid > 0)
-// 	{
-// 		kill(g_cgiPid, SIGKILL);
-// 		g_cgiPid = -1;
-// 	}
-// }
 
 std::string CGIHandler::getFileExt(const std::string &scriptPath, const LocationConfig &config)
 {
@@ -170,35 +160,6 @@ std::string readWithTimeout(int fd, pid_t pid, int timeoutSeconds)
 
     return output;
 }
-
-// std::string CGIHandler::readFromPipe(int fd, int timeoutSeconds)
-// {
-// 	std::string output;
-// 	const size_t BUFFER_SIZE = 65536;
-// 	char *buffer = new char[BUFFER_SIZE];
-// 	ssize_t bytesRead;
-
-// 	signal(SIGALRM, cgiTimeoutHandler);
-// 	alarm(timeoutSeconds);
-// 	while (true)
-// 	{
-// 		bytesRead = read(fd, buffer, BUFFER_SIZE);
-// 		if (bytesRead > 0)
-// 			output.append(buffer, bytesRead);
-// 		else if (bytesRead == 0)
-// 			break;
-// 		else
-// 		{
-// 			if (errno == EINTR)
-// 				continue;
-// 			break;
-// 		}
-// 	}
-// 	alarm(0);
-// 	signal(SIGALRM, SIG_DFL);
-// 	delete[] buffer;
-// 	return output;
-// }
 
 void closePipes(int inPipe[2], int outPipe[2])
 {
