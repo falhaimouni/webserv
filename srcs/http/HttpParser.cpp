@@ -138,14 +138,18 @@ bool HttpParser::parseHeaders()
             }
             else
             {
-                // No body
-                if (request.method == "POST")
+                // No Content-Length header - for POST/PUT, treat as empty body (0 length)
+                // For other methods, no body is expected
+                if (request.method == "POST" || request.method == "PUT")
                 {
-                    state = ERROR; // POST without Content-Length is invalid
-                    errorStatus = HTTP_LENGTH_REQUIRED; //411
-                    return true;
+                    // Set content-length to 0 for POST/PUT without Content-Length header
+                    request.headers["content-length"] = "0";
+                    state = COMPLETE;
                 }
-                state = COMPLETE;
+                else
+                {
+                    state = COMPLETE;
+                }
             }
             return true;
         }

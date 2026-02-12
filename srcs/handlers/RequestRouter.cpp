@@ -7,6 +7,9 @@
 #include "../../includes/shared/LocationConfig.hpp"
 #include <sys/stat.h>
 #include <unistd.h>
+#include <limits.h>
+#include <cstring>
+#include <cstdlib>
 
 static std::string resolvePath(const std::string &uri, const std::string &root)
 {
@@ -24,8 +27,48 @@ static std::string resolvePath(const std::string &uri, const std::string &root)
     return resolved;
 }
 
+// Check if the resolved path is within the root directory (path traversal protection)
+static bool isPathSafe(const std::string &resolvedPath, const std::string &root)
+{
+    char realResolved[PATH_MAX];
+    char realRoot[PATH_MAX];
+    
+    // Try to resolve the actual paths
+    const char *resPtr = realpath(resolvedPath.c_str(), realResolved);
+    const char *rootPtr = realpath(root.c_str(), realRoot);
+    
+    // If either doesn't exist, we can't verify - let the normal flow handle it
+    if (!resPtr || !rootPtr)
+        return true;
+    
+    std::string resolvedStr(realResolved);
+    std::string rootStr(rootPtr);
+    
+    // Ensure root ends with /
+    if (rootStr[rootStr.size() - 1] != '/')
+        rootStr += "/";
+    
+    // Check if resolved path starts with root
+    if (resolvedStr.compare(0, rootStr.size(), rootStr) != 0)
+    {
+        // Also check if it equals root exactly (without trailing slash)
+        std::string rootNoSlash = rootStr;
+        rootNoSlash = rootNoSlash.substr(0, rootNoSlash.size() - 1);
+        if (resolvedStr != rootNoSlash)
+            return false;
+    }
+    
+    return true;
+}
+
 Response routeRequest(const Request &req, const LocationConfig &config)
 {
+    // Block path traversal attempts
+    if (req.path.find("..") != std::string::npos)
+    {
+        return ErrorHandler::handleError(403, "Forbidden");
+    }
+    
     if (!config.redirect_to.empty() && config.redirect_code > 0)
     {
         Response res;
@@ -48,7 +91,19 @@ Response routeRequest(const Request &req, const LocationConfig &config)
         return UploadHandler::handleUploadReq(req, config, maxBodySize);
     }
     
-    std::string fullPath = resolvePath(req.path, config.root);
+    // Strip query string from path before resolving
+    std::string cleanPath = req.path;
+    size_t queryPos = cleanPath.find('?');
+    if (queryPos != std::string::npos)
+        cleanPath = cleanPath.substr(0, queryPos);
+    
+    std::string fullPath = resolvePath(cleanPath, config.root);
+    
+    // Check for path traversal attacks
+    if (!isPathSafe(fullPath, config.root))
+    {
+        return ErrorHandler::handleError(403, "Forbidden");
+    }
     
     struct stat st;
     if (stat(fullPath.c_str(), &st) != 0)
@@ -64,6 +119,11 @@ Response routeRequest(const Request &req, const LocationConfig &config)
             std::string ext = fullPath.substr(dotPos);
             if (config.cgi_ext.find(ext) != config.cgi_ext.end())
             {
+                // CGI scripts only allow GET and POST methods
+                if (req.method != "GET" && req.method != "POST")
+                {
+                    return ErrorHandler::handleError(405, "Method Not Allowed");
+                }
                 return CGIHandler::handleCGIReq(req, config, fullPath);
             }
         }

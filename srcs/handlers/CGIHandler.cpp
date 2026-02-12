@@ -232,6 +232,10 @@ Response CGIHandler::handleCGIReq(const Request &req, const LocationConfig &conf
 		return ErrorHandler::handleError(404, "Not Found");
 	if (!S_ISREG(st.st_mode))
 		return ErrorHandler::handleError(403, "Forbidden");
+	
+	// Check if file is readable
+	if (access(scriptPath.c_str(), R_OK) != 0)
+		return ErrorHandler::handleError(403, "Forbidden");
 
 	std::string exten = getFileExt(scriptPath, config);
 	if (isExecutable(scriptPath))
