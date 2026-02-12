@@ -21,6 +21,7 @@ struct LocationConfig {
     std::set<std::string> cgi_ext; // ".py", ".php"
 
     std::string redirect_to; // if non-empty, we redirect
+    int redirect_code;
 };
 
 #endif

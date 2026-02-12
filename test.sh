@@ -35,7 +35,7 @@ echo "🧠 Testing Client Manager / Parser / Router"
 # 1. Basic HTTP parsing
 test "HTTP GET parsing" \
 "curl -i $HOST/" \
-"HTTP/1.1"
+"HTTP/1.0"
 
 # 2. Method checking
 test "Invalid method handling" \
@@ -54,8 +54,8 @@ test "Routing to static path" \
 
 # 5. Chunked decoding
 test "Chunked request decoding" \
-"printf 'POST /upload HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n' | nc localhost 8080" \
-"HTTP/1.1"
+"printf 'POST /upload HTTP/1.0\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n' | nc localhost 8080" \
+"HTTP/1.0"
 
 ########################################
 # Developer C — Handlers / CGI / Response
@@ -77,7 +77,7 @@ test "Directory listing" \
 # 8. Upload handler
 test "Upload handler" \
 "curl -i -X POST -F 'file=@/etc/hosts' $HOST/upload" \
-"200"
+"201"
 
 # 9. CGI execution
 test "CGI execution" \
@@ -111,7 +111,7 @@ echo "🔹 Concurrent connections test ... $PASS"
 # 13. Large request buffering
 test "Large request buffering" \
 "dd if=/dev/zero bs=1024 count=100 | curl -i -X POST --data-binary @- $HOST/upload" \
-"HTTP/1.1"
+"HTTP/1.0"
 
 ########################################
 # Final

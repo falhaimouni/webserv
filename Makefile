@@ -10,9 +10,7 @@ SRCS = main.cpp \
 	   srcs/handlers/ResponseBuilder.cpp \
 	   srcs/handlers/UploadHandler.cpp \
 	   srcs/handlers/getType.cpp \
-	   srcs/handlers/RequestParser.cpp \
 	   srcs/handlers/RequestRouter.cpp \
-	   srcs/handlers/RequestHandler.cpp \
 	   srcs/handlers/DirectoryHandler.cpp \
 	   srcs/server/Server.cpp \
 	   srcs/routing/Router.cpp \
