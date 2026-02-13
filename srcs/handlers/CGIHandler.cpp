@@ -229,22 +229,22 @@ Response CGIHandler::handleCGIReq(const Request &req, const LocationConfig &conf
 
     struct stat st;
 	if (stat(scriptPath.c_str(), &st) != 0)
-		return ErrorHandler::handleError(404, "Not Found");
+		return ErrorHandler::handleError(404, "Not Found", config);
 	if (!S_ISREG(st.st_mode))
-		return ErrorHandler::handleError(403, "Forbidden");
+		return ErrorHandler::handleError(403, "Forbidden", config);
 	
 	// Check if file is readable
 	if (access(scriptPath.c_str(), R_OK) != 0)
-		return ErrorHandler::handleError(403, "Forbidden");
+		return ErrorHandler::handleError(403, "Forbidden", config);
 
 	std::string exten = getFileExt(scriptPath, config);
 	if (isExecutable(scriptPath))
 		exten = "";
 	else if (exten.empty())
-		return ErrorHandler::handleError(500, "Internal Server Error");
+		return ErrorHandler::handleError(500, "Internal Server Error", config);
 	else
 		if (stat(exten.c_str(), &st) != 0)
-			return ErrorHandler::handleError(500, "Internal Server Error");
+			return ErrorHandler::handleError(500, "Internal Server Error", config);
 
 	std::vector<std::string> envVars = buildEnvVars(req, scriptPath, config);
 	char **envArray = envToArray(envVars);
@@ -252,14 +252,14 @@ Response CGIHandler::handleCGIReq(const Request &req, const LocationConfig &conf
 	if (pipe(inPipe) == -1 || pipe(outPipe) == -1)
 	{
 		freeEnvArray(envArray);
-		return ErrorHandler::handleError(500, "Internal Server Error");
+		return ErrorHandler::handleError(500, "Internal Server Error", config);
 	}
 	pid_t pid = fork();
 	if (pid == -1)
 	{
 		closePipes(inPipe, outPipe);
 		freeEnvArray(envArray);
-		return ErrorHandler::handleError(500, "Internal Server Error");
+		return ErrorHandler::handleError(500, "Internal Server Error", config);
 	}
 	if (pid == 0)
 	{
@@ -323,15 +323,15 @@ Response CGIHandler::handleCGIReq(const Request &req, const LocationConfig &conf
             close(outPipe[0]);
 		    waitpid(pid, &status, 0);
     		freeEnvArray(envArray);
-            return ErrorHandler::handleError(504, "Gateway Timeout");
+            return ErrorHandler::handleError(504, "Gateway Timeout", config);
         }
 		close(outPipe[0]);
 		waitpid(pid, &status, 0);
 		freeEnvArray(envArray);
 		if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
-			return ErrorHandler::handleError(500, "Internal Server Error");
+			return ErrorHandler::handleError(500, "Internal Server Error", config);
 		if (WIFSIGNALED(status))
-			return ErrorHandler::handleError(504, "Gateway Timeout");
+			return ErrorHandler::handleError(504, "Gateway Timeout", config);
 		size_t headerEnd = cgiOutput.find("\r\n\r\n");
 		if (headerEnd == std::string::npos)
 			headerEnd = cgiOutput.find("\n\n");

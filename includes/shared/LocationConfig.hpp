@@ -3,6 +3,7 @@
 
 #include <string>
 #include <set>
+#include <map>
 
 struct LocationConfig {
     std::string path;              // "/upload"
@@ -15,7 +16,7 @@ struct LocationConfig {
 
     // Upload
     std::string upload_store;      // "./uploads"
-
+    std::map<int, std::string> error_pages;
     // CGI
     bool is_cgi;
     std::set<std::string> cgi_ext; // ".py", ".php"

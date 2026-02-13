@@ -66,7 +66,7 @@ Response routeRequest(const Request &req, const LocationConfig &config)
     // Block path traversal attempts
     if (req.path.find("..") != std::string::npos)
     {
-        return ErrorHandler::handleError(403, "Forbidden");
+        return ErrorHandler::handleError(403, "Forbidden", config);
     }
     
     if (!config.redirect_to.empty() && config.redirect_code > 0)
@@ -82,7 +82,7 @@ Response routeRequest(const Request &req, const LocationConfig &config)
     }
     if (config.methods.find(req.method) == config.methods.end())
     {
-        return ErrorHandler::handleError(405, "Method Not Allowed");
+        return ErrorHandler::handleError(405, "Method Not Allowed", config);
     }
 
     if (req.method == "POST" || req.method == "PUT")
@@ -102,13 +102,13 @@ Response routeRequest(const Request &req, const LocationConfig &config)
     // Check for path traversal attacks
     if (!isPathSafe(fullPath, config.root))
     {
-        return ErrorHandler::handleError(403, "Forbidden");
+        return ErrorHandler::handleError(403, "Forbidden", config);
     }
     
     struct stat st;
     if (stat(fullPath.c_str(), &st) != 0)
     {
-        return ErrorHandler::handleError(404, "Not Found");
+        return ErrorHandler::handleError(404, "Not Found", config);
     }
     
     if (config.is_cgi || S_ISREG(st.st_mode))
@@ -122,7 +122,7 @@ Response routeRequest(const Request &req, const LocationConfig &config)
                 // CGI scripts only allow GET and POST methods
                 if (req.method != "GET" && req.method != "POST")
                 {
-                    return ErrorHandler::handleError(405, "Method Not Allowed");
+                    return ErrorHandler::handleError(405, "Method Not Allowed", config);
                 }
                 return CGIHandler::handleCGIReq(req, config, fullPath);
             }
@@ -149,11 +149,11 @@ Response routeRequest(const Request &req, const LocationConfig &config)
                 return DirectoryHandler::handle(fullPath, req.path);
             }
             
-            return ErrorHandler::handleError(403, "Forbidden");
+            return ErrorHandler::handleError(403, "Forbidden", config);
         }
         else
         {
-            return ErrorHandler::handleError(405, "Method Not Allowed");
+            return ErrorHandler::handleError(405, "Method Not Allowed", config);
         }
     }
     
@@ -173,9 +173,9 @@ Response routeRequest(const Request &req, const LocationConfig &config)
                 res.headers["Content-Length"] = "0";
                 return res;
             }
-            return ErrorHandler::handleError(500, "Internal Server Error");
+            return ErrorHandler::handleError(500, "Internal Server Error", config);
         }
     }
     
-    return ErrorHandler::handleError(500, "Internal Server Error");
+    return ErrorHandler::handleError(500, "Internal Server Error", config);
 }

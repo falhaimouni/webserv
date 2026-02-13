@@ -105,9 +105,9 @@ bool UploadHandler::isPathTraversal(const std::string &path)
 Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig &config, size_t maxBodySize)
 {
     if (config.upload_store.empty())
-        return ErrorHandler::handleError(403, "Forbidden");    
+        return ErrorHandler::handleError(403, "Forbidden", config);    
     if (req.body.size() > maxBodySize)
-        return ErrorHandler::handleError(413, "Request Entity Too Large");
+        return ErrorHandler::handleError(413, "Request Entity Too Large", config);
 
     std::string filename;
     std::string content;
@@ -120,7 +120,7 @@ Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig
         contentType = contentTypeIt->second;
             std::string boundary = getBoundary(contentType);
             if (boundary.empty())
-                return ErrorHandler::handleError(400, "Bad Request");
+                return ErrorHandler::handleError(400, "Bad Request", config);
             
             filename = getFileName(req.body, boundary);
             content = parseMultipart(req.body, boundary);
@@ -135,7 +135,7 @@ Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig
         content = req.body;
     }
     if (isPathTraversal(filename))
-        return ErrorHandler::handleError(403, "Forbidden");
+        return ErrorHandler::handleError(403, "Forbidden", config);
     filename = reFormat(filename);
     if (filename.empty())
         filename = "uploaded_file";
@@ -146,13 +146,13 @@ Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig
         {
             std::cerr << "Failed to create upload directory: " << config.upload_store
                     << " (errno: " << errno << ")" << std::endl;
-            return ErrorHandler::handleError(500, "Internal Server Error");
+            return ErrorHandler::handleError(500, "Internal Server Error", config);
         }
     }
     else if (!S_ISDIR(dirStat.st_mode))
     {
         std::cerr << "Upload store exists but is not a directory: " << config.upload_store << std::endl;
-        return ErrorHandler::handleError(500, "Internal Server Error");
+        return ErrorHandler::handleError(500, "Internal Server Error", config);
     }
     std::string uploadPath = config.upload_store;
     if (uploadPath[uploadPath.size() - 1] != '/')
@@ -160,11 +160,11 @@ Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig
     uploadPath += filename;
     int fd = open(uploadPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0)
-        return ErrorHandler::handleError(500, "Internal Server Error");
+        return ErrorHandler::handleError(500, "Internal Server Error", config);
     ssize_t bytes = write(fd, content.c_str(), content.size());
     close(fd);
     if (bytes < 0 || static_cast<size_t>(bytes) != content.size())
-        return ErrorHandler::handleError(500, "Internal Server Error");
+        return ErrorHandler::handleError(500, "Internal Server Error", config);
     Response res;
     res.status = 201;
     res.reason = "Created";

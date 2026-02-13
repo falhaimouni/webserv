@@ -1,37 +1,37 @@
 #include "../../includes/handlers/ErrorHandler.hpp"
+#include "../../includes/shared/LocationConfig.hpp"
 #include <sstream>
-#include <fstream>
 #include <fcntl.h>
 #include <unistd.h>
 
-std::string ErrorHandler::getErrorPagePath(int status)
+// Get the path of the custom error page from the configuration
+std::string ErrorHandler::getErrorPagePath(int status, const LocationConfig &config)
 {
-    // Default error pages location (can be configured later)
-    std::ostringstream path;
-    path << "./www/error_pages/" << status << ".html";
-    return path.str();
+    std::map<int, std::string>::const_iterator it = config.error_pages.find(status);
+    if (it != config.error_pages.end())
+        return config.root + it->second; // Combine root + relative path
+    return ""; // fallback to default HTML
 }
 
+// Main entry point: use config to check for custom error page
+Response ErrorHandler::handleError(int status, const std::string &reason, const LocationConfig &config)
+{
+    std::string customPagePath = getErrorPagePath(status, config);
+    if (!customPagePath.empty())
+        return handleError(status, reason, customPagePath); // Use custom page if available
+
+    // Fallback to default HTML page
+    return handleError(status, reason);
+}
+
+// Default HTML error page (no config required)
 Response ErrorHandler::handleError(int status, const std::string &reason)
 {
-    // Try to load custom error page first
-    std::string customPagePath = getErrorPagePath(status);
-    int fd = open(customPagePath.c_str(), O_RDONLY);
-    if (fd != -1)
-    {
-        close(fd);
-        return handleError(status, reason, customPagePath);
-    }
-    
-    // Fall back to default error page
     Response res;
-    std::stringstream ss;
-    ss << status;
     res.status = status;
     res.reason = reason;
     res.headers["Content-Type"] = "text/html";
-    
-    // Generate better HTML error page
+
     std::ostringstream body;
     body << "<!DOCTYPE html>\n"
          << "<html>\n"
@@ -54,43 +54,43 @@ Response ErrorHandler::handleError(int status, const std::string &reason)
          << "    </div>\n"
          << "</body>\n"
          << "</html>\n";
-    
+
     res.body = body.str();
-    
+
+    // C++98-compliant Content-Length
     std::stringstream len;
     len << res.body.size();
     res.headers["Content-Length"] = len.str();
+
     return res;
 }
 
+// Handle a custom error page given its full path
 Response ErrorHandler::handleError(int status, const std::string &reason, const std::string &customPagePath)
 {
     Response res;
     res.status = status;
     res.reason = reason;
     res.headers["Content-Type"] = "text/html";
-    
-    // Read custom error page
+
     int fd = open(customPagePath.c_str(), O_RDONLY);
     if (fd == -1)
-    {
-        // If custom page can't be read, fall back to default
-        return handleError(status, reason);
-    }
-    
-    char buffer[4096];
+        return handleError(status, reason); // fallback to default HTML
+
     std::string content;
+    char buffer[4096];
     ssize_t bytesRead;
     while ((bytesRead = read(fd, buffer, sizeof(buffer))) > 0)
-    {
         content.append(buffer, bytesRead);
-    }
+
     close(fd);
-    
+
     res.body = content;
-    
+
+    // C++98-compliant Content-Length
     std::stringstream len;
     len << res.body.size();
     res.headers["Content-Length"] = len.str();
+
     return res;
 }
