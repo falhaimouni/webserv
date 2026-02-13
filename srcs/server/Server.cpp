@@ -22,7 +22,7 @@ void Server::initializeLocations()
     defaultLoc.root = "./www";
     defaultLoc.index = "index.html";
     defaultLoc.autoindex = true;
-    defaultLoc.upload_store = "./uploads";
+    defaultLoc.upload_store = "./www/uploads";
     defaultLoc.is_cgi = false;
     defaultLoc.methods.insert("GET");
     defaultLoc.methods.insert("POST");
@@ -40,7 +40,7 @@ void Server::initializeLocations()
     uploadLoc.root = "./www";
     uploadLoc.index = "index.html";
     uploadLoc.autoindex = true;
-    uploadLoc.upload_store = "./uploads";
+    uploadLoc.upload_store = "./www/uploads";
     uploadLoc.is_cgi = false;
     uploadLoc.methods.insert("POST");
     uploadLoc.methods.insert("GET");

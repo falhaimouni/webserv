@@ -16,14 +16,13 @@
 class UploadHandler
 {
 private:
-    static std::string parseMultipartFilename(const std::string &body, const std::string &boundary);
-    static std::string parseMultipartContent(const std::string &body, const std::string &boundary);
-    static std::string sanitizeFilename(const std::string &filename);
     static bool isPathTraversal(const std::string &path);
-    static std::string getBoundaryFromContentType(const std::string &contentType);
+    static std::string getBoundary(const std::string &contentType);
+    static std::string reFormat(const std::string &filename);
+    static std::string getFileName(const std::string &body, const std::string &boundary);
+    static std::string parseMultipart(const std::string &body, const std::string &boundary);
     
 public:
-    static Response handleUploadReq(const std::string &file, const std::string &data);
     static Response handleUploadReq(const Request &req, const LocationConfig &config, size_t maxBodySize);
 };
 
