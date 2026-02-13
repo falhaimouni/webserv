@@ -4,27 +4,23 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-// Get the path of the custom error page from the configuration
 std::string ErrorHandler::getErrorPagePath(int status, const LocationConfig &config)
 {
     std::map<int, std::string>::const_iterator it = config.error_pages.find(status);
     if (it != config.error_pages.end())
-        return config.root + it->second; // Combine root + relative path
-    return ""; // fallback to default HTML
+        return config.root + it->second;
+    return "";
 }
 
-// Main entry point: use config to check for custom error page
 Response ErrorHandler::handleError(int status, const std::string &reason, const LocationConfig &config)
 {
     std::string customPagePath = getErrorPagePath(status, config);
     if (!customPagePath.empty())
         return handleError(status, reason, customPagePath); // Use custom page if available
 
-    // Fallback to default HTML page
     return handleError(status, reason);
 }
 
-// Default HTML error page (no config required)
 Response ErrorHandler::handleError(int status, const std::string &reason)
 {
     Response res;
@@ -56,8 +52,6 @@ Response ErrorHandler::handleError(int status, const std::string &reason)
          << "</html>\n";
 
     res.body = body.str();
-
-    // C++98-compliant Content-Length
     std::stringstream len;
     len << res.body.size();
     res.headers["Content-Length"] = len.str();
@@ -65,7 +59,6 @@ Response ErrorHandler::handleError(int status, const std::string &reason)
     return res;
 }
 
-// Handle a custom error page given its full path
 Response ErrorHandler::handleError(int status, const std::string &reason, const std::string &customPagePath)
 {
     Response res;
@@ -75,7 +68,7 @@ Response ErrorHandler::handleError(int status, const std::string &reason, const 
 
     int fd = open(customPagePath.c_str(), O_RDONLY);
     if (fd == -1)
-        return handleError(status, reason); // fallback to default HTML
+        return handleError(status, reason);
 
     std::string content;
     char buffer[4096];
@@ -86,8 +79,6 @@ Response ErrorHandler::handleError(int status, const std::string &reason, const 
     close(fd);
 
     res.body = content;
-
-    // C++98-compliant Content-Length
     std::stringstream len;
     len << res.body.size();
     res.headers["Content-Length"] = len.str();
