@@ -1,8 +1,17 @@
 #include "../../includes/router/Router.hpp"
 
+static std::string stripQuery(const std::string &path)
+{
+    size_t qpos = path.find('?');
+    if (qpos == std::string::npos)
+        return path;
+    return path.substr(0, qpos);
+}
+
 const LocationConfig* Router::route(const Request& req,
         const std::vector<LocationConfig>& locations, int& status)
 {
+    std::string cleanPath = stripQuery(req.path);
     if (locations.empty())
     {
         status = HTTP_NOT_FOUND; //404
@@ -15,7 +24,9 @@ const LocationConfig* Router::route(const Request& req,
     for (size_t i = 0; i < locations.size(); i++)
     {
         const LocationConfig& loc = locations[i]; //each individual location
-        size_t len = matchLocation(loc, req);
+        Request cleanReq = req;
+        cleanReq.path = cleanPath;
+        size_t len = matchLocation(loc, cleanReq);
 
         if (len >  bestLength)
         {

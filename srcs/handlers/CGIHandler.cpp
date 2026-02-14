@@ -25,6 +25,8 @@ std::string CGIHandler::getFileExt(const std::string &scriptPath, const Location
 	std::string ext = scriptPath.substr(dotPos);
 	if (config.cgi_ext.find(ext) == config.cgi_ext.end())
 		return "";
+	if (!config.cgi_path.empty())
+		return config.cgi_path;
 	if (ext == ".py" || ext == ".py3")
 		return "/usr/bin/python3";
 	else if (ext == ".php")

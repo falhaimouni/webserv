@@ -11,6 +11,14 @@
 #include <cstring>
 #include <cstdlib>
 
+static std::string stripQuery(const std::string &path)
+{
+    size_t qpos = path.find('?');
+    if (qpos == std::string::npos)
+        return path;
+    return path.substr(0, qpos);
+}
+
 static std::string resolvePath(const std::string &uri, const std::string &root)
 {
     std::string resolved = root;
@@ -27,38 +35,71 @@ static std::string resolvePath(const std::string &uri, const std::string &root)
     return resolved;
 }
 
+static std::string buildLocationRelativePath(const std::string &reqPath,
+                                             const std::string &locPath)
+{
+    if (locPath == "/")
+        return reqPath;
+
+    if (reqPath.compare(0, locPath.size(), locPath) != 0)
+        return reqPath;
+
+    std::string rel = reqPath.substr(locPath.size());
+    if (!rel.empty() && rel[0] == '/')
+        rel = rel.substr(1);
+    return rel;
+}
+
 // Check if the resolved path is within the root directory (path traversal protection)
 static bool isPathSafe(const std::string &resolvedPath, const std::string &root)
 {
-    char realResolved[PATH_MAX];
     char realRoot[PATH_MAX];
     
-    // Try to resolve the actual paths
-    const char *resPtr = realpath(resolvedPath.c_str(), realResolved);
-    const char *rootPtr = realpath(root.c_str(), realRoot);
+    // Get canonical root (must exist)
+    if (!realpath(root.c_str(), realRoot))
+        return false;  // Root path doesn't exist - this should never happen in normal operation
     
-    // If either doesn't exist, we can't verify - let the normal flow handle it
-    if (!resPtr || !rootPtr)
-        return true;
-    
-    std::string resolvedStr(realResolved);
-    std::string rootStr(rootPtr);
-    
-    // Ensure root ends with /
+    std::string rootStr = std::string(realRoot);
     if (rootStr[rootStr.size() - 1] != '/')
         rootStr += "/";
     
-    // Check if resolved path starts with root
-    if (resolvedStr.compare(0, rootStr.size(), rootStr) != 0)
+    // Try to get canonical resolved path
+    char realResolved[PATH_MAX];
+    if (realpath(resolvedPath.c_str(), realResolved))
     {
-        // Also check if it equals root exactly (without trailing slash)
-        std::string rootNoSlash = rootStr;
-        rootNoSlash = rootNoSlash.substr(0, rootNoSlash.size() - 1);
-        if (resolvedStr != rootNoSlash)
-            return false;
+        // File exists - use its canonical path
+        std::string resolvedStr = std::string(realResolved);
+        
+        // Check if it starts with root
+        if (resolvedStr.compare(0, rootStr.size() - 1, rootStr.substr(0, rootStr.size() - 1)) == 0)
+            return true;
+        
+        return false;
     }
     
-    return true;
+    // File doesn't exist - check if its parent exists and if the path would be under root
+    std::string parentPath = resolvedPath;
+    size_t lastSlash = parentPath.rfind('/');
+    if (lastSlash != std::string::npos)
+        parentPath = parentPath.substr(0, lastSlash);
+    
+    // If parentPath is empty, use current directory
+    if (parentPath.empty())
+        parentPath = ".";
+    
+    if (!realpath(parentPath.c_str(), realResolved))
+        return false;  // Parent doesn't exist either
+    
+    std::string parentRealPath = std::string(realResolved);
+    if (parentRealPath[parentRealPath.size() - 1] != '/')
+        parentRealPath += "/";
+    
+    // Check if parent starts with root (file would be under root)
+    std::string rootNoSlash = rootStr.substr(0, rootStr.size() - 1);
+    if (parentRealPath.find(rootNoSlash + "/") == 0 || parentRealPath == rootNoSlash + "/")
+        return true;
+    
+    return false;
 }
 
 Response routeRequest(const Request &req, const LocationConfig &config)
@@ -80,24 +121,25 @@ Response routeRequest(const Request &req, const LocationConfig &config)
         res.headers["Content-Length"] = "0";
         return res;
     }
-    if (config.methods.find(req.method) == config.methods.end())
+    if (!config.methods.empty() && config.methods.find(req.method) == config.methods.end())
     {
         return ErrorHandler::handleError(405, "Method Not Allowed", config);
     }
 
     if (req.method == "POST" || req.method == "PUT")
     {
-        size_t maxBodySize = 1024 * 1024;
-        return UploadHandler::handleUploadReq(req, config, maxBodySize);
+        if (config.upload_enable)
+        {
+            size_t maxBodySize = config.max_body_size;
+            return UploadHandler::handleUploadReq(req, config, maxBodySize);
+        }
     }
     
     // Strip query string from path before resolving
-    std::string cleanPath = req.path;
-    size_t queryPos = cleanPath.find('?');
-    if (queryPos != std::string::npos)
-        cleanPath = cleanPath.substr(0, queryPos);
-    
-    std::string fullPath = resolvePath(cleanPath, config.root);
+    std::string cleanPath = stripQuery(req.path);
+
+    std::string relativePath = buildLocationRelativePath(cleanPath, config.path);
+    std::string fullPath = resolvePath(relativePath, config.root);
     
     // Check for path traversal attacks
     if (!isPathSafe(fullPath, config.root))
@@ -128,6 +170,9 @@ Response routeRequest(const Request &req, const LocationConfig &config)
             }
         }
     }
+
+    if (req.method == "POST" || req.method == "PUT")
+        return ErrorHandler::handleError(405, "Method Not Allowed", config);
     
     if (S_ISDIR(st.st_mode))
     {
@@ -141,7 +186,8 @@ Response routeRequest(const Request &req, const LocationConfig &config)
             struct stat indexSt;
             if (stat(indexPath.c_str(), &indexSt) == 0 && S_ISREG(indexSt.st_mode))
             {
-                return StaticHandler::handleStaticReq(req, config);
+                // Call the simple handleStaticReq with the already-resolved path
+                return StaticHandler::handleStaticReq(indexPath);
             }
             
             if (config.autoindex)
@@ -161,7 +207,8 @@ Response routeRequest(const Request &req, const LocationConfig &config)
     {
         if (req.method == "GET")
         {
-            return StaticHandler::handleStaticReq(req, config);
+            // Call the simple handleStaticReq with the already-resolved path
+            return StaticHandler::handleStaticReq(fullPath);
         }
         else if (req.method == "DELETE")
         {
