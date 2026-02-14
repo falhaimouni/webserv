@@ -5,20 +5,20 @@
 #include <poll.h>
 
 class Poller {
-private:
-    std::vector<struct pollfd> _pfds;
+    private:
+        std::vector<struct pollfd> _pfds;
 
-public:
-    Poller();
-    ~Poller();
+    public:
+        Poller();
+        ~Poller();
 
-    void addFd(int fd, short events);
-    void removeFd(int fd);
-    void setEvents(int fd, short events);
+        void addFd(int fd, short events);
+        void removeFd(int fd);
+        void setEvents(int fd, short events);
 
-    int  wait(int timeoutMs);
+        int  wait(int timeoutMs);
 
-    std::vector<struct pollfd>& getPollFds();
+        std::vector<struct pollfd>& getPollFds();
 };
 
 #endif

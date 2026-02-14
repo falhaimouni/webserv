@@ -6,6 +6,7 @@
 struct Client
 {
     int fd;
+    int listenFd;
     std::string writeBuffer;
     std::string readBuffer;
     long long lastActiveTime;
@@ -13,10 +14,10 @@ struct Client
     bool requestReady;
 
     Client()
-        : fd(-1), writeBuffer(""), readBuffer(""), lastActiveTime(0), wantClose(false), requestReady(false) {}
+        : fd(-1), listenFd(-1), lastActiveTime(0), wantClose(false) {}
 
-    Client(int clientFd)
-        : fd(clientFd), writeBuffer(""), readBuffer(""), lastActiveTime(0), wantClose(false), requestReady(false) {}
+    Client(int clientFd, int listenfd)
+        : fd(clientFd), listenFd(listenfd), lastActiveTime(0), wantClose(false) {}
 };
 
 #endif

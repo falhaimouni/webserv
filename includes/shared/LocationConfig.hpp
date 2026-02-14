@@ -19,6 +19,11 @@ struct LocationConfig {
     // CGI
     bool is_cgi;
     std::set<std::string> cgi_ext; // ".py", ".php"
+
+    LocationConfig()
+    : index("index.html"), autoindex(false),
+      upload_store("./uploads"), is_cgi(false) {}
+
 };
 
 #endif

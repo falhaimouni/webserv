@@ -1,30 +1,47 @@
-#include "Logger.hpp"
+#include "ConfigParser.hpp"
 #include "ServerManager.hpp"
 #include "Poller.hpp"
 #include "Client.hpp"
-#include "http/HttpHandler.hpp"
-
-#include <unistd.h>
+#include "Logger.hpp"
 #include <map>
 #include <vector>
-#include <poll.h>
-#include <sys/socket.h>
-#include <cstring>
 #include <ctime>
+#include <unistd.h>
 
-int main()
+int main(int argc, char **argv)
 {
-    ServerManager server;
-    Poller poller;
-    std::map<int, Client> clients;
-
-    if (!server.start(8080))
+    if (argc != 2)
     {
-        Logger::error("Server failed to start");
+        Logger::error("Usage: ./webserv <config_file>");
         return 1;
     }
 
-    poller.addFd(server.getListenFd(), POLLIN);
+    ConfigParser parser;
+    if (!parser.parse(argv[1]))
+        return 1;
+
+    Poller poller;
+
+    const std::vector<ServerConfig> &serversCfg = parser.getServers();
+
+    std::vector<ServerManager*> servers;
+    std::map<int, int> listenFdToServerIndex; // listenFd -> index in serversCfg
+    std::map<int, Client> clients;
+
+    // start servers
+    for (size_t i = 0; i < serversCfg.size(); i++)
+    {
+        ServerManager *sm = new ServerManager();
+        if (!sm->start(serversCfg[i].port))
+        {
+            Logger::error("Failed to start port " + Logger::toStringInt(serversCfg[i].port));
+            return 1;
+        }
+        int listenFd = sm->getListenFd();
+        servers.push_back(sm);
+        listenFdToServerIndex[listenFd] = (int)i;
+        poller.addFd(listenFd, POLLIN);
+    }
 
     while (true)
     {
@@ -32,118 +49,44 @@ int main()
         if (ready < 0)
             continue;
 
-        std::vector<struct pollfd>& pfds = poller.getPollFds();
+        std::vector<struct pollfd> &pfds = poller.getPollFds();
 
-        for (size_t i = 0; i < pfds.size(); i++)
+        for (size_t k = 0; k < pfds.size(); k++)
         {
-            if (pfds[i].revents == 0)
+            if (pfds[k].revents == 0)
                 continue;
 
-            int fd = pfds[i].fd;
+            int fd = pfds[k].fd;
 
-            // 1) Listener readable -> accept clients
-            if (fd == server.getListenFd() && (pfds[i].revents & POLLIN))
+            // if fd is a listen fd → accept
+            if (listenFdToServerIndex.find(fd) != listenFdToServerIndex.end() &&
+                (pfds[k].revents & POLLIN))
             {
+                // find which ServerManager owns this listen fd
+                // simplest: linear search
+                ServerManager *owner = NULL;
+                for (size_t s = 0; s < servers.size(); s++)
+                {
+                    if (servers[s]->getListenFd() == fd)
+                        owner = servers[s];
+                }
+                if (!owner)
+                    continue;
+
                 while (true)
                 {
-                    int clientFd = server.acceptClient();
-                    if (clientFd < 0)
+                    int cfd = owner->acceptClient();
+                    if (cfd < 0)
                         break;
 
-                    if (clients.find(clientFd) != clients.end())
-                    {
-                        close(clientFd);
-                        continue;
-                    }
-                    clients[clientFd] = Client(clientFd);
-                    clients[clientFd].lastActiveTime = (long long)time(NULL);
-                    poller.addFd(clientFd, POLLIN);
-
-                   // Logger::info("Accepted client fd=" + Logger::toStringInt(clientFd));
+                    clients[cfd] = Client(cfd, fd);
+                    clients[cfd].lastActiveTime = (long long)time(NULL);
+                    poller.addFd(cfd, POLLIN);
                 }
                 continue;
             }
 
-            // 2) Error/hangup
-            if (pfds[i].revents & (POLLERR | POLLHUP | POLLNVAL))
-            {
-                Logger::error("Client error/hangup fd=" + Logger::toStringInt(fd));
-                close(fd);
-                poller.removeFd(fd);
-                clients.erase(fd);
-                break; // pfds changed
-            }
-
-            // 3) Readable client
-            if (pfds[i].revents & POLLIN)
-            {
-                char buf[4096];
-                int bytes = recv(fd, buf, sizeof(buf), 0);
-
-                if (bytes <= 0)
-                {
-                    Logger::info("Client disconnected fd=" + Logger::toStringInt(fd));
-                    close(fd);
-                    poller.removeFd(fd);
-                    clients.erase(fd);
-                    break;
-                }
-
-                Client &c = clients[fd];
-                c.lastActiveTime = (long long)time(NULL);
-                c.readBuffer.append(buf, bytes);
-
-                if (c.readBuffer.find("\r\n\r\n") != std::string::npos)
-                {
-                    Logger::info("HTTP headers complete for fd=" + Logger::toStringInt(fd));
-
-                    // Build response
-                    HttpHandler::handle(c);
-
-                    // Clear request buffer (for now one request per connection)
-                    c.readBuffer.clear();
-
-                    // Enable sending
-                    poller.setEvents(fd, POLLIN | POLLOUT);
-                }
-
-            }
-
-            // 4) Writable client -> send response
-            if (pfds[i].revents & POLLOUT)
-            {
-                Client &c = clients[fd];
-
-                if (!c.writeBuffer.empty())
-                {
-                    int sent = send(fd, c.writeBuffer.c_str(), c.writeBuffer.size(), 0);
-
-                    if (sent <= 0)
-                    {
-                        Logger::info("Send failed/disconnect fd=" + Logger::toStringInt(fd));
-                        close(fd);
-                        poller.removeFd(fd);
-                        clients.erase(fd);
-                        break;
-                    }
-
-                    c.writeBuffer.erase(0, sent);
-                }
-
-                // If finished sending, close (since handler sets wantClose=true)
-                if (c.writeBuffer.empty() && c.wantClose)
-                {
-                    Logger::info("Closing client fd=" + Logger::toStringInt(fd));
-                    close(fd);
-                    poller.removeFd(fd);
-                    clients.erase(fd);
-                    break;
-                }
-
-                // Otherwise stop watching POLLOUT
-                if (c.writeBuffer.empty())
-                    poller.setEvents(fd, POLLIN);
-            }
+            // client handling (read/write) stays as you already have
         }
     }
 

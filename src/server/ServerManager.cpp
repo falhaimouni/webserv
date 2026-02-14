@@ -55,14 +55,11 @@ bool ServerManager::start(int port)
 {
     Logger::info("ServerManager::start called");
     _listenFd = socket(AF_INET, SOCK_STREAM, 0);
-    //int listenfd2 = socket(AF_INET, SOCK_STREAM, 0);
-    //std::cout << "Listen FD: " << listenfd2 << std::endl;
     if (_listenFd < 0)
     {
         Logger::error("socket() failed");
         return false;
     }
-    // std::cout << "Listen FD: " << _listenFd << std::endl;
     Logger::info(std::string("socket() OK fd=") + Logger::toStringInt(_listenFd));
 
     int opt = 1;

@@ -1,17 +1,6 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   Poller.cpp                                         :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: marvin <marvin@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/01/25 22:48:12 by marvin            #+#    #+#             */
-/*   Updated: 2026/01/25 22:48:12 by marvin           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include "Poller.hpp"
 #include "Logger.hpp"
+#include <cerrno>
 
 Poller::Poller() {}
 Poller::~Poller() {}
@@ -23,12 +12,17 @@ std::vector<pollfd>& Poller::getPollFds()
 
 void Poller::addFd(int fd, short events)
 {
+    for (size_t i = 0; i < _pfds.size(); i++)
+    {
+        if (_pfds[i].fd == fd)
+            return;
+    }
+
     pollfd p;
     p.fd = fd;
     p.events = events;
     p.revents = 0;
     _pfds.push_back(p);
-    Logger::info(std::string("Poller add fd=") + Logger::toStringInt(fd));
 }
 
 void Poller::removeFd(int fd)
@@ -63,6 +57,10 @@ int Poller::wait(int timeoutMs)
 
     int ret = poll(&_pfds[0], _pfds.size(), timeoutMs);
     if (ret < 0)
+    {
+        if (errno == EINTR)
+            return 0;
         Logger::error("poll() failed");
+    }
     return ret;
 }
