@@ -139,6 +139,16 @@ Response routeRequest(const Request &req, const LocationConfig &config)
     std::string cleanPath = stripQuery(req.path);
 
     std::string relativePath = buildLocationRelativePath(cleanPath, config.path);
+    
+    // Special case: if relative path is empty and location looks like a file (contains dot),
+    // append the location filename to the relative path
+    if (relativePath.empty() && !config.path.empty() && config.path.find('.') != std::string::npos)
+    {
+        relativePath = config.path;
+        if (!relativePath.empty() && relativePath[0] == '/')
+            relativePath = relativePath.substr(1);
+    }
+    
     std::string fullPath = resolvePath(relativePath, config.root);
     
     // Check for path traversal attacks

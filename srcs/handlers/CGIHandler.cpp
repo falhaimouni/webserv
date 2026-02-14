@@ -239,14 +239,16 @@ Response CGIHandler::handleCGIReq(const Request &req, const LocationConfig &conf
 	if (access(scriptPath.c_str(), R_OK) != 0)
 		return ErrorHandler::handleError(403, "Forbidden", config);
 
+	// CGI scripts must have execute permission
+	if (!isExecutable(scriptPath))
+		return ErrorHandler::handleError(403, "Forbidden", config);
+
 	std::string exten = getFileExt(scriptPath, config);
-	if (isExecutable(scriptPath))
-		exten = "";
-	else if (exten.empty())
+	if (exten.empty())
 		return ErrorHandler::handleError(500, "Internal Server Error", config);
-	else
-		if (stat(exten.c_str(), &st) != 0)
-			return ErrorHandler::handleError(500, "Internal Server Error", config);
+	
+	if (stat(exten.c_str(), &st) != 0)
+		return ErrorHandler::handleError(500, "Internal Server Error", config);
 
 	std::vector<std::string> envVars = buildEnvVars(req, scriptPath, config);
 	char **envArray = envToArray(envVars);
