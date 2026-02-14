@@ -119,3 +119,11 @@ void ClientManager::handleSession(int fd)
     std::sprintf(sessionBuf, "%d", (std::rand() % 1000000) + 100000);
     clients[fd].sessionID = std::string(sessionBuf);
 }
+
+std::string ClientManager::getSessionID(int fd) const
+{
+    std::map<int, ClientState>::const_iterator it = clients.find(fd);
+    if (it == clients.end())
+        return "";
+    return it->second.sessionID;
+}

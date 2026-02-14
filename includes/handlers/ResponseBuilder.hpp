@@ -13,8 +13,8 @@ private:
     static std::string getServerName();
    
 public:
-    static std::string formatResponse(Response &response);
-    static std::string formatResponse(Response &response, const std::string &httpVersion);
+    static std::string formatResponse(Response &response, const std::string &sessionID = "");
+    static std::string formatResponse(Response &response, const std::string &httpVersion, const std::string &sessionID = "");
 };
 
 

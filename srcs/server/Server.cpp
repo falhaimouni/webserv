@@ -141,7 +141,11 @@ void Server::run()
                     // Handle parsing error
                     int errorStatus = _clientManager.getErrorStatus(_fds[i].fd);
                     Response errorRes = ErrorHandler::handleError(errorStatus, "");
-                    std::string raw = ResponseBuilder::formatResponse(errorRes);
+                    std::string raw = ResponseBuilder::formatResponse(
+                        errorRes,
+                        "HTTP/1.0",
+                        _clientManager.getSessionID(_fds[i].fd)
+                    );
                     send(_fds[i].fd, raw.c_str(), raw.size(), 0);
                     
                     _clientManager.removeClient(_fds[i].fd);
@@ -155,6 +159,9 @@ void Server::run()
                 {
                     // 🔹 Get parsed request
                     const Request& req = _clientManager.getRequest(_fds[i].fd);
+
+                    // 🔹 Handle session (parse or create sessionID)
+                    _clientManager.handleSession(_fds[i].fd);
 
                     // 🔹 Route request to find matching location
                     int routeStatus = HTTP_OK;
@@ -174,7 +181,11 @@ void Server::run()
                     }
 
                     // 🔹 Build and send response
-                    std::string raw = ResponseBuilder::formatResponse(res);
+                    std::string raw = ResponseBuilder::formatResponse(
+                        res,
+                        "HTTP/1.0",
+                        _clientManager.getSessionID(_fds[i].fd)
+                    );
                     send(_fds[i].fd, raw.c_str(), raw.size(), 0);
 
                     // 🔹 Reset parser for potential keep-alive

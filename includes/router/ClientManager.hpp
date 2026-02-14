@@ -25,6 +25,7 @@ public:
     void reset(int fd); // after response is sent
     int getErrorStatus(int fd);
     void handleSession(int fd); //call after request is fully parsed
+    std::string getSessionID(int fd) const;
 
 private:
     std::map<int, ClientState> clients; //owner of all connected clients
