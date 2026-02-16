@@ -211,15 +211,43 @@ bool ConfigParser::parse(const std::string &path)
                 i++;
                 if (i >= toks.size())
                 {
-                    Logger::error("Expected port number after listen");
+                    Logger::error("Expected port or IP:port after listen");
                     return false;
                 }
-                if (!isNumber(toks[i]))
+                
+                // Check if it's IP:port format
+                size_t colonPos = toks[i].find(':');
+                if (colonPos != std::string::npos)
                 {
-                    Logger::error("Invalid listen port: " + toks[i]);
-                    return false;
+                    // Format: IP:port
+                    std::string ipPart = toks[i].substr(0, colonPos);
+                    std::string portPart = toks[i].substr(colonPos + 1);
+                    
+                    if (!isValidIpv4(ipPart))
+                    {
+                        Logger::error("Invalid IP address in listen: " + ipPart);
+                        return false;
+                    }
+                    if (!isNumber(portPart))
+                    {
+                        Logger::error("Invalid port in listen: " + portPart);
+                        return false;
+                    }
+                    
+                    srv.host = ipPart;
+                    srv.port = std::atoi(portPart.c_str());
                 }
-                srv.port = std::atoi(toks[i].c_str());
+                else
+                {
+                    // Format: port only
+                    if (!isNumber(toks[i]))
+                    {
+                        Logger::error("Invalid listen port: " + toks[i]);
+                        return false;
+                    }
+                    srv.port = std::atoi(toks[i].c_str());
+                }
+                
                 if (srv.port <= 0 || srv.port > 65535)
                 {
                     Logger::error("listen port out of range: " + toks[i]);
@@ -230,7 +258,7 @@ bool ConfigParser::parse(const std::string &path)
 
                 if (i >= toks.size() || toks[i] != ";")
                 {
-                    Logger::error("Expected ';' after listen <port>");
+                    Logger::error("Expected ';' after listen directive");
                     return false;
                 }
                 i++;
