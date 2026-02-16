@@ -121,6 +121,8 @@ Response routeRequest(const Request &req, const LocationConfig &config)
         res.headers["Content-Length"] = "0";
         return res;
     }
+    
+    // Check method restrictions BEFORE processing uploads or any other handler
     if (!config.methods.empty() && config.methods.find(req.method) == config.methods.end())
     {
         return ErrorHandler::handleError(405, "Method Not Allowed", config);

@@ -86,8 +86,6 @@ static void normalizeServerConfigs(std::vector<ServerConfig> &servers)
             if (servers[i].locations[j].path == "/uploads")
             {
                 servers[i].locations[j].autoindex = true;
-                servers[i].locations[j].methods.insert("GET");
-                servers[i].locations[j].methods.insert("POST");
                 if (!servers[i].locations[j].upload_store.empty())
                     servers[i].locations[j].root = servers[i].locations[j].upload_store;
             }
