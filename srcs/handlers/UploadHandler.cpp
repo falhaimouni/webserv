@@ -4,8 +4,11 @@
 #include <cstdlib>
 #include <algorithm>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <iostream>
 #include <errno.h>
+#include <sstream>
 
 std::string UploadHandler::getBoundary(const std::string &contentType)
 {
@@ -23,7 +26,7 @@ std::string UploadHandler::getBoundary(const std::string &contentType)
     return boundary;
 }
 
-//Content-Disposition: form-data; name="file"; filename="hello.txt"
+// Extract filename from multipart/form-data
 std::string UploadHandler::getFileName(const std::string &body, const std::string &boundary)
 {
     (void)boundary;
@@ -40,7 +43,7 @@ std::string UploadHandler::getFileName(const std::string &body, const std::strin
         namePos += 9;
     }
     else
-        namePos += 10; //if its with qoutes
+        namePos += 10;
     size_t endPos = body.find("\"", namePos);
     if (endPos == std::string::npos)
     {
@@ -53,6 +56,7 @@ std::string UploadHandler::getFileName(const std::string &body, const std::strin
     return body.substr(namePos, endPos - namePos);
 }
 
+// Extract the content of the file from multipart/form-data
 std::string UploadHandler::parseMultipart(const std::string &body, const std::string &boundary)
 {
     std::string boundaryMarker = "--" + boundary;
@@ -61,23 +65,24 @@ std::string UploadHandler::parseMultipart(const std::string &body, const std::st
         return "";
     size_t headerEnd = body.find("\r\n\r\n", firstBoundary);
     if (headerEnd != std::string::npos)
-        headerEnd += 4; // in HTTP, headers end with two CRLFs (\r\n\r\n)
+        headerEnd += 4;
     else
     {
         headerEnd = body.find("\n\n", firstBoundary);
         if (headerEnd == std::string::npos)
             return "";
-        headerEnd += 2; // for only LF (\n) instead of CRLF (\r\n)
+        headerEnd += 2;
     }
     size_t nextBoundary = body.find(boundaryMarker, headerEnd);
     if (nextBoundary == std::string::npos)
         nextBoundary = body.size();
-    while (nextBoundary > headerEnd && 
+    while (nextBoundary > headerEnd &&
            (body[nextBoundary - 1] == '\n' || body[nextBoundary - 1] == '\r'))
         nextBoundary--;
     return body.substr(headerEnd, nextBoundary - headerEnd);
 }
 
+// Clean filename: remove path traversal and invalid characters
 std::string UploadHandler::reFormat(const std::string &filename)
 {
     std::string cleanFilename = filename;
@@ -105,9 +110,13 @@ bool UploadHandler::isPathTraversal(const std::string &path)
 Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig &config, size_t maxBodySize)
 {
     if (config.upload_store.empty())
-        return ErrorHandler::handleError(403, "Forbidden", config);    
+        return ErrorHandler::handleError(403, "Forbidden", config);
+
     if (req.body.size() > maxBodySize)
         return ErrorHandler::handleError(413, "Request Entity Too Large", config);
+
+    if (req.body.empty())
+        return ErrorHandler::handleError(400, "Bad Request", config);
 
     std::string filename;
     std::string content;
@@ -118,12 +127,20 @@ Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig
     if (contentTypeIt != req.headers.end() && contentTypeIt->second.find("multipart/form-data") != std::string::npos)
     {
         contentType = contentTypeIt->second;
-            std::string boundary = getBoundary(contentType);
-            if (boundary.empty())
-                return ErrorHandler::handleError(400, "Bad Request", config);
-            
-            filename = getFileName(req.body, boundary);
-            content = parseMultipart(req.body, boundary);
+        std::string boundary = getBoundary(contentType);
+        if (boundary.empty())
+            return ErrorHandler::handleError(400, "Bad Request", config);
+
+        std::string multipartFilename = getFileName(req.body, boundary);
+        content = parseMultipart(req.body, boundary);
+
+        size_t lastSlash = req.path.find_last_of('/');
+        if (lastSlash != std::string::npos && lastSlash + 1 < req.path.size())
+            filename = req.path.substr(lastSlash + 1);
+        else if (!multipartFilename.empty())
+            filename = multipartFilename;
+        else
+            filename = "uploaded_file";
     }
     else
     {
@@ -134,18 +151,21 @@ Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig
             filename = "uploaded_file";
         content = req.body;
     }
+
     if (isPathTraversal(filename))
         return ErrorHandler::handleError(403, "Forbidden", config);
+
     filename = reFormat(filename);
     if (filename.empty())
         filename = "uploaded_file";
+
     struct stat dirStat;
     if (stat(config.upload_store.c_str(), &dirStat) != 0)
     {
         if (mkdir(config.upload_store.c_str(), 0755) != 0)
         {
             std::cerr << "Failed to create upload directory: " << config.upload_store
-                    << " (errno: " << errno << ")" << std::endl;
+                      << " (errno: " << errno << ")" << std::endl;
             return ErrorHandler::handleError(500, "Internal Server Error", config);
         }
     }
@@ -155,12 +175,14 @@ Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig
         return ErrorHandler::handleError(500, "Internal Server Error", config);
     }
     std::string uploadPath = config.upload_store;
-    if (uploadPath[uploadPath.size() - 1] != '/')
+    if (uploadPath.empty() || uploadPath[uploadPath.size() - 1] != '/')
         uploadPath += "/";
     uploadPath += filename;
+
     int fd = open(uploadPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0)
         return ErrorHandler::handleError(500, "Internal Server Error", config);
+
     ssize_t bytes = write(fd, content.c_str(), content.size());
     close(fd);
     if (bytes < 0 || static_cast<size_t>(bytes) != content.size())
@@ -180,7 +202,6 @@ Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig
          << "    <p>File '" << filename << "' uploaded successfully.</p>\n"
          << "</body>\n"
          << "</html>\n";
-
     res.body = body.str();
 
     std::ostringstream len;
