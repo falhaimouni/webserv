@@ -26,6 +26,7 @@ public:
     int getErrorStatus(int fd);
     void handleSession(int fd); //call after request is fully parsed
     std::string getSessionID(int fd) const;
+    void clientClosed(int fd);
 
 private:
     std::map<int, ClientState> clients; //owner of all connected clients

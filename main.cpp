@@ -250,6 +250,8 @@ int main(int argc, char **argv)
                 ssize_t bytes = recv(fd, buffer, sizeof(buffer), 0);
                 if (bytes == 0)
                 {
+                    //client close the connection and the body was not fully received
+                    clientManager.clientClosed(fd);
                     toClose.push_back(fd);
                     continue;
                 }

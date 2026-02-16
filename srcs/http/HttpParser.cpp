@@ -196,27 +196,33 @@ bool HttpParser::parseBody()
 {
     if (isChunked == true)
     {
+        //transfer-encoding and content-length can't both exist in header
         if (request.headers.count("content-length"))
         {
             state = ERROR;
             errorStatus = HTTP_BAD_REQUEST; //400
             return true;
-        }        
-        
+        }
+
+        //keep reading until full body is complete
         while (true)
         {
+            //first read the size
             if (chunkSize == 0)
             {
+                //find CRLF
                 size_t sep = buffer.find("\r\n");
                 if (sep == std::string::npos)
-                    return (false);
-    
+                    return (false); //wait for more data
+                    
+                //extract same size
                 std::string data = buffer.substr(0, sep);
-                buffer.erase(0, sep + 2);
+                buffer.erase(0, sep + 2);//remove chunk size and \r\n
 
                 std::istringstream iss(data);
-                iss >> std::hex >> chunkSize;
+                iss >> std::hex >> chunkSize; //read chunk size
 
+                //invalid chunk size
                 if (!iss.eof() || iss.fail())
                 {
                     state = ERROR;
@@ -224,8 +230,10 @@ bool HttpParser::parseBody()
                     return true;
                 }
 
+                //last chunk
                 if (chunkSize == 0)
                 {
+                    //for final CRLF after last line
                     if(buffer.size() < 2)
                         return false;
 
@@ -235,26 +243,29 @@ bool HttpParser::parseBody()
                         errorStatus = HTTP_BAD_REQUEST; //400
                         return true;
                     }
-                    buffer.erase(0, 2);
+                    buffer.erase(0, 2);//remove final \r\n
                     state = COMPLETE;
                     return true;
                 }
             }
-    
+
+            //read data
             else
             {
+                //until full chunk and CRLF, whole line
                 if (buffer.size() < chunkSize + 2)
                 {
                     return false;
                 }
+                //check CRLF after chunk data
                 if (buffer[chunkSize] != '\r' || buffer[chunkSize + 1] != '\n')
                 {
                     state = ERROR;
                     errorStatus = HTTP_BAD_REQUEST; //400
                     return true;
-                }                
+                }
 
-                //append exact chunk bytes
+                //append exact chunk bytes to body
                 request.body.append(buffer, 0, chunkSize);
 
                 if (request.body.size() > MAX_BODY_SIZE)
@@ -264,14 +275,16 @@ bool HttpParser::parseBody()
                     return true;
                 }
 
+                //remove chunk data and CRLF from buffer
                 buffer.erase(0, chunkSize + 2);
+                //reset to read next chunk size
                 chunkSize = 0;
             }
         }
     }
 
     std::map<std::string, std::string>::iterator it =
-        request.headers.find("content-length");
+    request.headers.find("content-length");
 
     if (it == request.headers.end())
     {
@@ -298,19 +311,20 @@ bool HttpParser::parseBody()
     }
 
     // Wait for enough data
-    if (buffer.size() < static_cast<size_t>(contentlength))
+    if(buffer.size() < static_cast<size_t>(contentlength))
         return false;
 
     // Extract EXACTLY Content-Length bytes
     request.body = buffer.substr(0, contentlength);
     buffer.erase(0, contentlength);
     
-    // buffer may still have data (next request)
+    // buffer may still have extra data (next request) treated as pipeline
     // It will be processed after reset()
-
+    
     state = COMPLETE;
     return true;
 }
+
 
 void HttpParser::processBuffer()
 {

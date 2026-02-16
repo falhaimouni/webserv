@@ -127,3 +127,19 @@ std::string ClientManager::getSessionID(int fd) const
         return "";
     return it->second.sessionID;
 }
+
+void ClientManager::clientClosed(int fd)
+{
+    std::map<int, ClientState>::iterator it = clients.find(fd);
+    if (it == clients.end())
+        return;
+    HttpParser &parser = it->second.parser;
+
+    //if it is complete nothing to do
+    if (parser.isComplete())
+        return;
+    //if content length exists and body is no complete
+    long long contentLength = parser.getContentLength();
+    if (contentLength > 0 && parser.getBodySize() < (size_t)contentLength)
+        parser.forceError(HTTP_BAD_REQUEST);
+}

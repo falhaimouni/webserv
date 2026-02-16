@@ -17,6 +17,9 @@ public:
     std::string trim(const std::string& str);
     int getErrorStatus() const;
     void processBuffer();
+    long long getContentLength() const;
+    size_t getBodySize() const;
+    void forceError(int status);
 
 private:
     static const size_t MAX_LINE_SIZE = 8192; // Max request line or header line

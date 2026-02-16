@@ -56,3 +56,28 @@ int HttpParser::getErrorStatus() const
 {
     return errorStatus;
 }
+
+//return content length header as number
+long long HttpParser::getContentLength() const
+{
+    std::map<std::string, std::string>::const_iterator it = request.headers.find("content-length");
+    //if header doesn't exist, no body length
+    if (it == request.headers.end())
+        return 0;
+    long long length = 0;
+    std::istringstream iss(it->second);
+    iss >> length;
+    return length;
+}
+
+size_t HttpParser::getBodySize() const
+{
+    return request.body.size();
+}
+
+//force the parser into error state, if client disconnect befor reading the size
+void HttpParser::forceError(int status)
+{
+    state = ERROR;
+    errorStatus = status;
+}
