@@ -25,8 +25,17 @@ std::string CGIHandler::getFileExt(const std::string &scriptPath, const Location
 	std::string ext = scriptPath.substr(dotPos);
 	if (config.cgi_ext.find(ext) == config.cgi_ext.end())
 		return "";
+	
+	// Check if we have a configured interpreter for this extension
+	std::map<std::string, std::string>::const_iterator it = config.cgi_interpreters.find(ext);
+	if (it != config.cgi_interpreters.end())
+		return it->second;
+	
+	// Fall back to cgi_path if set
 	if (!config.cgi_path.empty())
 		return config.cgi_path;
+	
+	// Fall back to default interpreters
 	if (ext == ".py" || ext == ".py3")
 		return "/usr/bin/python3";
 	else if (ext == ".php")

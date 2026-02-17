@@ -202,7 +202,7 @@ bool ConfigParser::parse(const std::string &path)
         i++;
 
         ServerConfig srv;
-        bool hasListen = false;
+        std::vector<std::pair<std::string, int> > listenAddrs; // Store all listen directives (host, port)
 
         while (i < toks.size() && toks[i] != "}")
         {
@@ -214,6 +214,9 @@ bool ConfigParser::parse(const std::string &path)
                     Logger::error("Expected port or IP:port after listen");
                     return false;
                 }
+                
+                std::string host = "0.0.0.0";
+                int port = 0;
                 
                 // Check if it's IP:port format
                 size_t colonPos = toks[i].find(':');
@@ -234,8 +237,8 @@ bool ConfigParser::parse(const std::string &path)
                         return false;
                     }
                     
-                    srv.host = ipPart;
-                    srv.port = std::atoi(portPart.c_str());
+                    host = ipPart;
+                    port = std::atoi(portPart.c_str());
                 }
                 else
                 {
@@ -245,15 +248,16 @@ bool ConfigParser::parse(const std::string &path)
                         Logger::error("Invalid listen port: " + toks[i]);
                         return false;
                     }
-                    srv.port = std::atoi(toks[i].c_str());
+                    port = std::atoi(toks[i].c_str());
                 }
                 
-                if (srv.port <= 0 || srv.port > 65535)
+                if (port <= 0 || port > 65535)
                 {
                     Logger::error("listen port out of range: " + toks[i]);
                     return false;
                 }
-                hasListen = true;
+                
+                listenAddrs.push_back(std::make_pair(host, port));
                 i++;
 
                 if (i >= toks.size() || toks[i] != ";")
@@ -419,7 +423,7 @@ bool ConfigParser::parse(const std::string &path)
 
                 while (i < toks.size() && toks[i] != "}")
                 {
-                    if (toks[i] == "methods")
+                    if (toks[i] == "methods" || toks[i] == "allowed_methods")
                     {
                         i++;
                         loc.methods.clear();
@@ -551,16 +555,26 @@ bool ConfigParser::parse(const std::string &path)
                             return false;
                         }
                         loc.is_cgi = true;
-                        while (i < toks.size() && toks[i] != ";")
+                        
+                        // Parse: cgi_extension .ext /path/to/interpreter;
+                        // First token should be the extension
+                        if (toks[i].empty() || toks[i][0] != '.')
                         {
-                            if (toks[i].empty() || toks[i][0] != '.')
-                            {
-                                Logger::error("Invalid cgi_extension: " + toks[i]);
-                                return false;
-                            }
-                            loc.cgi_ext.insert(toks[i]);
+                            Logger::error("Invalid cgi_extension: " + toks[i]);
+                            return false;
+                        }
+                        std::string ext = toks[i];
+                        loc.cgi_ext.insert(ext);
+                        i++;
+                        
+                        // Next token might be the interpreter path, or ';'
+                        if (i < toks.size() && toks[i] != ";")
+                        {
+                            // We have an interpreter path
+                            loc.cgi_interpreters[ext] = toks[i];
                             i++;
                         }
+                        
                         if (i >= toks.size() || toks[i] != ";")
                         {
                             Logger::error("Expected ';' after cgi_extension");
@@ -615,6 +629,36 @@ bool ConfigParser::parse(const std::string &path)
                         i++;
                         loc.error_pages[code] = pathVal;
                     }
+                    else if (toks[i] == "return")
+                    {
+                        i++;
+                        if (i + 1 >= toks.size())
+                        {
+                            Logger::error("Expected return <code> <url>");
+                            return false;
+                        }
+                        if (!isNumber(toks[i]))
+                        {
+                            Logger::error("Invalid redirect code: " + toks[i]);
+                            return false;
+                        }
+                        int code = std::atoi(toks[i].c_str());
+                        if (code < 300 || code > 399)
+                        {
+                            Logger::error("Redirect code out of range (300-399): " + toks[i]);
+                            return false;
+                        }
+                        loc.redirect_code = code;
+                        i++;
+                        loc.redirect_to = toks[i];
+                        i++;
+                        if (i >= toks.size() || toks[i] != ";")
+                        {
+                            Logger::error("Expected ';' after return directive");
+                            return false;
+                        }
+                        i++;
+                    }
                     else
                     {
                         Logger::error("Unknown directive in location: " + toks[i]);
@@ -644,13 +688,20 @@ bool ConfigParser::parse(const std::string &path)
         }
         i++;
 
-        if (!hasListen)
+        if (listenAddrs.empty())
         {
             Logger::error("server block missing 'listen'");
             return false;
         }
 
-        _servers.push_back(srv);
+        // Create a separate ServerConfig for each listen directive
+        for (size_t j = 0; j < listenAddrs.size(); ++j)
+        {
+            ServerConfig serverCopy = srv;
+            serverCopy.host = listenAddrs[j].first;
+            serverCopy.port = listenAddrs[j].second;
+            _servers.push_back(serverCopy);
+        }
     }
 
     return !_servers.empty();

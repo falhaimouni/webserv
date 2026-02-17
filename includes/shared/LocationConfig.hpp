@@ -25,6 +25,7 @@ struct LocationConfig {
     // CGI
     bool is_cgi;
     std::set<std::string> cgi_ext; // ".py", ".php"
+    std::map<std::string, std::string> cgi_interpreters; // extension -> interpreter path
     std::string cgi_path;
 
     // Redirects
