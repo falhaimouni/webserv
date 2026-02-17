@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Webserv Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            display: inline-block;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            cursor: pointer;
+        }
+
+        input[type="file"] {
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Webserv Test</h1>
+
+    <!-- GET Button -->
+    <h2>GET Request</h2>
+    <button onclick="sendGet()">Send GET</button>
+
+    <hr>
+
+    <!-- POST Form -->
+    <h2>POST (Upload File)</h2>
+    <form action="/uploads" method="POST" enctype="multipart/form-data">
+        <input type="file" name="file">
+        <br>
+        <button type="submit">Upload File</button>
+    </form>
+
+    <hr>
+
+    <!-- DELETE Button -->
+    <h2>DELETE Request</h2>
+    <input type="text" id="deleteFile" placeholder="Enter filename (e.g test.txt)">
+    <br>
+    <button onclick="sendDelete()">Delete File</button>
+
+</div>
+
+<script>
+function sendGet() {
+    fetch('/')
+        .then(response => response.text())
+        .then(data => {
+            alert("GET request sent successfully!");
+            console.log(data);
+        })
+        .catch(err => console.error(err));
+}
+
+function sendDelete() {
+    const filename = document.getElementById("deleteFile").value;
+
+    if (!filename) {
+        alert("Enter a filename first!");
+        return;
+    }
+
+    fetch('/uploads/' + filename, {
+        method: 'DELETE'
+    })
+    .then(response => {
+        if (response.ok) {
+            alert("File deleted successfully!");
+        } else {
+            alert("Delete failed!");
+        }
+    })
+    .catch(err => console.error(err));
+}
+</script>
+
+</body>
+</html>

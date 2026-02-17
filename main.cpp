@@ -21,6 +21,13 @@
 #include "server/Logger.hpp"
 #include "server/ServerConfig.hpp"
 
+static volatile sig_atomic_t stopFlag = 0;
+void signalHandler(int signum)
+{
+    if (signum == SIGINT)
+        stopFlag = 1;
+}
+
 static std::string reasonPhrase(int status)
 {
     switch (status)
@@ -161,6 +168,8 @@ static void closeClient(int fd,
 int main(int argc, char **argv)
 {
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGINT, signalHandler);
+
     if (argc != 2)
     {
         Logger::error("Usage: ./webserv <config_file>");
@@ -185,6 +194,7 @@ int main(int argc, char **argv)
     std::map<int, std::string> pendingResponses;
 
     // start servers
+   
     for (size_t i = 0; i < serversCfg.size(); i++)
     {
         ServerManager *sm = new ServerManager();
@@ -201,8 +211,8 @@ int main(int argc, char **argv)
         listenFdToServerIndex[listenFd] = (int)i;
         poller.addFd(listenFd, POLLIN);
     }
-
-    while (true)
+    
+    while (!stopFlag)
     {
         int ready = poller.wait(1000);
         if (ready < 0)
@@ -329,10 +339,49 @@ int main(int argc, char **argv)
                     toClose.push_back(fd);
             }
         }
+        // for (size_t i = 0; i < toClose.size(); ++i)
+        //     closeClient(toClose[i], poller, clientManager, clientFdToServerIndex, pendingResponses);
+     }
+    
+        // Collect remaining fds from poller
+        std::vector<int> remainingFds;
+        std::vector<struct pollfd> &pfds_final = poller.getPollFds();
+        for (size_t i = 0; i < pfds_final.size(); ++i)
+            remainingFds.push_back(pfds_final[i].fd);
 
-        for (size_t i = 0; i < toClose.size(); ++i)
-            closeClient(toClose[i], poller, clientManager, clientFdToServerIndex, pendingResponses);
-    }
+        // Close non-listen fds properly
+        for (size_t i = 0; i < remainingFds.size(); ++i)
+        {
+            int fd = remainingFds[i];
+            if (listenFdToServerIndex.find(fd) == listenFdToServerIndex.end())
+            {
+                if (clientFdToServerIndex.find(fd) != clientFdToServerIndex.end() ||
+                    pendingResponses.find(fd) != pendingResponses.end())
+                {
+                    closeClient(fd, poller, clientManager, clientFdToServerIndex, pendingResponses);
+                }
+                else
+                {
+                    // fallback: remove from poller and close
+                    poller.removeFd(fd);
+                    close(fd);
+                }
+            }
+        }
+
+        // Close listen sockets and delete ServerManager instances
+        for (size_t i = 0; i < servers.size(); ++i)
+        {
+            if (servers[i])
+            {
+                int lfd = servers[i]->getListenFd();
+                poller.removeFd(lfd);
+                close(lfd);
+                delete servers[i];
+            }
+        }
+        servers.clear();
+        listenFdToServerIndex.clear();
 
     return 0;
 }
