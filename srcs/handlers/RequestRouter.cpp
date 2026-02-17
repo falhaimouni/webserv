@@ -151,6 +151,18 @@ Response routeRequest(const Request &req, const LocationConfig &config)
             relativePath = relativePath.substr(1);
     }
     
+    // Special case: if relative path is empty and location is a directory path (ends with /),
+    // use the location path (without leading slash) as the relative path
+    if (relativePath.empty() && !config.path.empty() && config.path[config.path.length() - 1] == '/' && config.path != "/")
+    {
+        relativePath = config.path;
+        if (!relativePath.empty() && relativePath[0] == '/')
+            relativePath = relativePath.substr(1);
+        // Remove trailing slash
+        if (!relativePath.empty() && relativePath[relativePath.length() - 1] == '/')
+            relativePath = relativePath.substr(0, relativePath.length() - 1);
+    }
+    
     std::string fullPath = resolvePath(relativePath, config.root);
     
     // Check for path traversal attacks

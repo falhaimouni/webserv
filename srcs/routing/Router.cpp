@@ -66,14 +66,24 @@ size_t Router::matchLocation(const LocationConfig& loc, const Request& req)
     //match everything
     if (locPath == "/")
         return 1;
-    //req path must start with loc path
-    if (reqPath.compare(0, locPath.length(), locPath) != 0)
+    
+    // Remove trailing slash from location path for matching
+    std::string locPathNoTrail = locPath;
+    if (!locPathNoTrail.empty() && locPathNoTrail[locPathNoTrail.length() - 1] == '/')
+        locPathNoTrail = locPathNoTrail.substr(0, locPathNoTrail.length() - 1);
+    
+    // Exact match or request path starts with location path
+    if (reqPath == locPathNoTrail)
+        return locPathNoTrail.length();
+    
+    if (reqPath.compare(0, locPathNoTrail.length(), locPathNoTrail) != 0)
         return 0;
-    // so /upload isin't /uploads
-    //give me the character right after in the req path
-    if (reqPath.length() > locPath.length() && reqPath[locPath.length()] != '/')
+    
+    // so /upload isn't /uploads - check next character must be / or end of string
+    if (reqPath.length() > locPathNoTrail.length() && reqPath[locPathNoTrail.length()] != '/')
         return 0;
-    return locPath.length(); //longest
+    
+    return locPathNoTrail.length(); //longest
 }
 
 bool Router::matchMethod(const LocationConfig& loc, const Request& req)
