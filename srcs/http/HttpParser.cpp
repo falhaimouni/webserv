@@ -123,6 +123,11 @@ bool HttpParser::parseHeaders()
     
         if (line.empty()) //end of headers
         {
+            if (isChunked)
+            {
+                state = BODY;
+                return true;
+            }
             // Check if ANY method has Content-Length
             if (request.headers.count("content-length"))
             {
@@ -138,9 +143,9 @@ bool HttpParser::parseHeaders()
             }
             else
             {
-                // No Content-Length header - for POST/PUT, treat as empty body (0 length)
+                // No Content-Length header - for POST, treat as empty body (0 length)
                 // For other methods, no body is expected
-                if (request.method == "POST" || request.method == "PUT")
+                if (request.method == "POST")
                 {
                     // Set content-length to 0 for POST/PUT without Content-Length header
                     request.headers["content-length"] = "0";

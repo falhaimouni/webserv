@@ -131,16 +131,6 @@ RouteResult routeRequest(const Request &req, const LocationConfig &config)
         result.response = ErrorHandler::handleError(405, "Method Not Allowed", config);
         return result;
     }
-
-    if (req.method == "POST" || req.method == "PUT")
-    {
-        if (config.upload_enable)
-        {
-            size_t maxBodySize = config.max_body_size;
-            result.response = UploadHandler::handleUploadReq(req, config, maxBodySize);
-            return result;
-        }
-    }
     
     // Strip query string from path before resolving
     std::string cleanPath = stripQuery(req.path);
@@ -184,6 +174,8 @@ RouteResult routeRequest(const Request &req, const LocationConfig &config)
         return result;
     }
     
+    // **CGI DETECTION FIRST** - before upload handler
+    // This ensures CGI scripts are handled as CGI, not as file uploads
     if (config.is_cgi || S_ISREG(st.st_mode))
     {
         size_t dotPos = fullPath.rfind('.');
@@ -205,7 +197,18 @@ RouteResult routeRequest(const Request &req, const LocationConfig &config)
         }
     }
 
-    if (req.method == "POST" || req.method == "PUT")
+    // **UPLOAD HANDLER** - after CGI check
+    if (req.method == "POST")
+    {
+        if (config.upload_enable)
+        {
+            size_t maxBodySize = config.max_body_size;
+            result.response = UploadHandler::handleUploadReq(req, config, maxBodySize);
+            return result;
+        }
+    }
+
+    if (req.method == "POST")
     {
         result.response = ErrorHandler::handleError(405, "Method Not Allowed", config);
         return result;

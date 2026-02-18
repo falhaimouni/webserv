@@ -25,7 +25,7 @@ static bool isNumber(const std::string &s)
 
 static bool isValidMethod(const std::string &m)
 {
-    return (m == "GET" || m == "POST" || m == "DELETE" || m == "PUT");
+    return (m == "GET" || m == "POST" || m == "DELETE");
 }
 
 static bool parseBoolOnOff(const std::string &s, bool &out)
