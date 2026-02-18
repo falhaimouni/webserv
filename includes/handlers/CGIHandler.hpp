@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <ctime>
+#include <sys/types.h>
 
 class CGIHandler
 {
@@ -20,6 +22,29 @@ private:
     static bool isExecutable(const std::string &path);
     
 public:
+    struct CgiProcess
+    {
+        int inFd;
+        int outFd;
+        pid_t pid;
+        std::string input;
+        size_t inputOffset;
+        std::string output;
+        std::time_t startTime;
+        int timeoutSec;
+        std::string scriptPath;
+
+        CgiProcess()
+            : inFd(-1), outFd(-1), pid(-1), inputOffset(0), startTime(0), timeoutSec(30)
+        {}
+    };
+
+    static bool startCgiProcess(const Request &req,
+                                const LocationConfig &config,
+                                const std::string &scriptPath,
+                                CgiProcess &proc,
+                                Response &errorRes);
+    static Response buildCgiResponse(const std::string &cgiOutput, const std::string &scriptPath);
     static Response handleCGIReq(const std::string &scriptPath, const std::string &input);
     static Response handleCGIReq(const Request &req, const LocationConfig &config, const std::string &scriptPath);
 };

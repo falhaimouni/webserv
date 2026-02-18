@@ -23,7 +23,7 @@ public:
 
 private:
     static const size_t MAX_LINE_SIZE = 8192; // Max request line or header line
-    static const size_t MAX_BODY_SIZE = 1048576; // 1MB default
+    static const size_t MAX_BODY_SIZE = 16777216; // 16MB default (allows testing various configs)
     static const size_t MAX_HEADERS = 100; // Max number of headers
     size_t headerCount;
 

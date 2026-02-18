@@ -58,9 +58,8 @@ int Poller::wait(int timeoutMs)
     int ret = poll(&_pfds[0], _pfds.size(), timeoutMs);
     if (ret < 0)
     {
-        if (errno == EINTR)
-            return 0;
         Logger::error("poll() failed");
+        return -1;
     }
     return ret;
 }

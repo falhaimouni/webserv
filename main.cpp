@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <errno.h>
 #include <signal.h>
 
@@ -95,6 +96,9 @@ static void normalizeServerConfigs(std::vector<ServerConfig> &servers)
                 servers[i].locations[j].autoindex = true;
                 if (!servers[i].locations[j].upload_store.empty())
                     servers[i].locations[j].root = servers[i].locations[j].upload_store;
+                // Enable upload for /uploads location if POST is allowed
+                if (servers[i].locations[j].methods.find("POST") != servers[i].locations[j].methods.end())
+                    servers[i].locations[j].upload_enable = true;
             }
             if (servers[i].locations[j].path == "/upload")
             {
@@ -102,6 +106,14 @@ static void normalizeServerConfigs(std::vector<ServerConfig> &servers)
                 if (servers[i].locations[j].methods.empty())
                     servers[i].locations[j].methods.insert("POST");
                 servers[i].locations[j].upload_enable = true;
+            }
+            // Enable upload_enable for any location that allows POST method
+            if (servers[i].locations[j].methods.find("POST") != servers[i].locations[j].methods.end() &&
+                !servers[i].locations[j].upload_enable)
+            {
+                servers[i].locations[j].upload_enable = true;
+                if (servers[i].locations[j].upload_store.empty())
+                    servers[i].locations[j].upload_store = servers[i].root + "/uploads";
             }
             if (servers[i].locations[j].path == "/static")
                 hasStaticLocation = true;
@@ -152,12 +164,60 @@ static void normalizeServerConfigs(std::vector<ServerConfig> &servers)
     }
 }
 
+struct CgiTask
+{
+    CGIHandler::CgiProcess proc;
+    int clientFd;
+    LocationConfig config;
+
+    CgiTask() : clientFd(-1), config() {}
+};
+
+static void cleanupCgiTask(int clientFd,
+                           Poller &poller,
+                           std::map<int, CgiTask> &cgiTasks,
+                           std::map<int, int> &cgiFdToClient,
+                           bool killProcess)
+{
+    std::map<int, CgiTask>::iterator it = cgiTasks.find(clientFd);
+    if (it == cgiTasks.end())
+        return;
+
+    CGIHandler::CgiProcess &proc = it->second.proc;
+
+    if (proc.inFd >= 0)
+    {
+        poller.removeFd(proc.inFd);
+        cgiFdToClient.erase(proc.inFd);
+        close(proc.inFd);
+        proc.inFd = -1;
+    }
+    if (proc.outFd >= 0)
+    {
+        poller.removeFd(proc.outFd);
+        cgiFdToClient.erase(proc.outFd);
+        close(proc.outFd);
+        proc.outFd = -1;
+    }
+    if (killProcess && proc.pid > 0)
+    {
+        kill(proc.pid, SIGKILL);
+        int status;
+        waitpid(proc.pid, &status, 0);
+        proc.pid = -1;
+    }
+    cgiTasks.erase(it);
+}
+
 static void closeClient(int fd,
                         Poller &poller,
                         ClientManager &clientManager,
                         std::map<int, int> &clientFdToServerIndex,
-                        std::map<int, std::string> &pendingResponses)
+                        std::map<int, std::string> &pendingResponses,
+                        std::map<int, CgiTask> &cgiTasks,
+                        std::map<int, int> &cgiFdToClient)
 {
+    cleanupCgiTask(fd, poller, cgiTasks, cgiFdToClient, true);
     poller.removeFd(fd);
     clientManager.removeClient(fd);
     clientFdToServerIndex.erase(fd);
@@ -192,6 +252,8 @@ int main(int argc, char **argv)
     Router router;
     std::map<int, int> clientFdToServerIndex;
     std::map<int, std::string> pendingResponses;
+    std::map<int, CgiTask> cgiTasks; // clientFd -> CGI task
+    std::map<int, int> cgiFdToClient; // pipe fd -> clientFd
 
     // start servers
    
@@ -218,6 +280,30 @@ int main(int argc, char **argv)
         if (ready < 0)
             continue;
 
+        std::time_t now = std::time(NULL);
+        for (std::map<int, CgiTask>::iterator it = cgiTasks.begin(); it != cgiTasks.end(); )
+        {
+            int clientFd = it->first;
+            CgiTask &task = it->second;
+            if (now - task.proc.startTime >= task.proc.timeoutSec)
+            {
+                Response timeoutRes = ErrorHandler::handleError(504, "Gateway Timeout", task.config);
+                std::string sessionId = clientManager.getSessionID(clientFd);
+                pendingResponses[clientFd] = ResponseBuilder::formatResponse(timeoutRes, "HTTP/1.0", sessionId);
+                poller.setEvents(clientFd, POLLOUT);
+
+                std::map<int, CgiTask>::iterator next = it;
+                ++next;
+                cleanupCgiTask(clientFd, poller, cgiTasks, cgiFdToClient, true);
+                it = next;
+                continue;
+            }
+            ++it;
+        }
+
+        if (ready == 0)
+            continue;
+
         std::vector<int> toClose;
         std::vector<struct pollfd> &pfds = poller.getPollFds();
 
@@ -227,6 +313,71 @@ int main(int argc, char **argv)
                 continue;
 
             int fd = pfds[k].fd;
+
+            std::map<int, int>::iterator cgiFdIt = cgiFdToClient.find(fd);
+            if (cgiFdIt != cgiFdToClient.end())
+            {
+                int clientFd = cgiFdIt->second;
+                std::map<int, CgiTask>::iterator taskIt = cgiTasks.find(clientFd);
+                if (taskIt == cgiTasks.end())
+                {
+                    poller.removeFd(fd);
+                    cgiFdToClient.erase(fd);
+                    close(fd);
+                    continue;
+                }
+
+                CgiTask &task = taskIt->second;
+
+                if (fd == task.proc.inFd && (pfds[k].revents & POLLOUT))
+                {
+                    if (task.proc.inputOffset < task.proc.input.size())
+                    {
+                        ssize_t written = write(task.proc.inFd,
+                                               task.proc.input.c_str() + task.proc.inputOffset,
+                                               task.proc.input.size() - task.proc.inputOffset);
+                        if (written > 0)
+                            task.proc.inputOffset += written;
+                    }
+
+                    if (task.proc.inputOffset >= task.proc.input.size())
+                    {
+                        poller.removeFd(task.proc.inFd);
+                        cgiFdToClient.erase(task.proc.inFd);
+                        close(task.proc.inFd);
+                        task.proc.inFd = -1;
+                    }
+                }
+
+                if (fd == task.proc.outFd && (pfds[k].revents & (POLLIN | POLLHUP | POLLERR)))
+                {
+                    char buffer[65536];
+                    ssize_t bytesRead = read(task.proc.outFd, buffer, sizeof(buffer));
+                    if (bytesRead > 0)
+                        task.proc.output.append(buffer, bytesRead);
+
+                    if (bytesRead == 0 || (pfds[k].revents & POLLHUP))
+                    {
+                        int status;
+                        waitpid(task.proc.pid, &status, 0);
+
+                        Response res;
+                        if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+                            res = ErrorHandler::handleError(500, "Internal Server Error", task.config);
+                        else if (WIFSIGNALED(status))
+                            res = ErrorHandler::handleError(504, "Gateway Timeout", task.config);
+                        else
+                            res = CGIHandler::buildCgiResponse(task.proc.output, task.proc.scriptPath);
+
+                        std::string sessionId = clientManager.getSessionID(clientFd);
+                        pendingResponses[clientFd] = ResponseBuilder::formatResponse(res, "HTTP/1.0", sessionId);
+                        poller.setEvents(clientFd, POLLOUT);
+
+                        cleanupCgiTask(clientFd, poller, cgiTasks, cgiFdToClient, false);
+                    }
+                }
+                continue;
+            }
 
             // if fd is a listen fd → accept
             if (listenFdToServerIndex.find(fd) != listenFdToServerIndex.end() &&
@@ -297,7 +448,48 @@ int main(int argc, char **argv)
                         if (!loc)
                             res = ErrorHandler::handleError(routeStatus, reasonPhrase(routeStatus), fallback);
                         else
-                            res = routeRequest(req, *loc);
+                        {
+                            RouteResult routeRes = routeRequest(req, *loc);
+                            if (routeRes.isCgi)
+                            {
+                                CGIHandler::CgiProcess proc;
+                                Response cgiErr;
+
+                                cleanupCgiTask(fd, poller, cgiTasks, cgiFdToClient, true);
+
+                                if (!CGIHandler::startCgiProcess(req, *loc, routeRes.cgiPath, proc, cgiErr))
+                                {
+                                    res = cgiErr;
+                                }
+                                else
+                                {
+                                    if (proc.input.empty())
+                                    {
+                                        close(proc.inFd);
+                                        proc.inFd = -1;
+                                    }
+                                    else
+                                    {
+                                        poller.addFd(proc.inFd, POLLOUT);
+                                        cgiFdToClient[proc.inFd] = fd;
+                                    }
+
+                                    poller.addFd(proc.outFd, POLLIN);
+                                    cgiFdToClient[proc.outFd] = fd;
+
+                                    CgiTask task;
+                                    task.clientFd = fd;
+                                    task.config = *loc;
+                                    task.proc = proc;
+                                    cgiTasks[fd] = task;
+
+                                    poller.setEvents(fd, 0);
+                                    continue;
+                                }
+                            }
+                            else
+                                res = routeRes.response;
+                        }
                     }
 
                     std::string sessionId = clientManager.getSessionID(fd);
@@ -340,7 +532,7 @@ int main(int argc, char **argv)
             }
         }
         // for (size_t i = 0; i < toClose.size(); ++i)
-        //     closeClient(toClose[i], poller, clientManager, clientFdToServerIndex, pendingResponses);
+        //     closeClient(toClose[i], poller, clientManager, clientFdToServerIndex, pendingResponses, cgiTasks, cgiFdToClient);
      }
     
         // Collect remaining fds from poller
@@ -358,7 +550,7 @@ int main(int argc, char **argv)
                 if (clientFdToServerIndex.find(fd) != clientFdToServerIndex.end() ||
                     pendingResponses.find(fd) != pendingResponses.end())
                 {
-                    closeClient(fd, poller, clientManager, clientFdToServerIndex, pendingResponses);
+                    closeClient(fd, poller, clientManager, clientFdToServerIndex, pendingResponses, cgiTasks, cgiFdToClient);
                 }
                 else
                 {

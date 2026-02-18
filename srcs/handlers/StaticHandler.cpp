@@ -71,8 +71,6 @@ Response StaticHandler::handleStaticReq(const std::string &reqPath)
     int fd = open(reqPath.c_str(), O_RDONLY);
     if (fd == -1)
     {
-        if (errno == EACCES)
-            return ErrorHandler::handleError(403, "Forbidden");
         return ErrorHandler::handleError(404, "Not Found");
     }
     

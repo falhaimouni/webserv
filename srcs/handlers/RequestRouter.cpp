@@ -102,12 +102,14 @@ static bool isPathSafe(const std::string &resolvedPath, const std::string &root)
     return false;
 }
 
-Response routeRequest(const Request &req, const LocationConfig &config)
+RouteResult routeRequest(const Request &req, const LocationConfig &config)
 {
+    RouteResult result;
     // Block path traversal attempts
     if (req.path.find("..") != std::string::npos)
     {
-        return ErrorHandler::handleError(403, "Forbidden", config);
+        result.response = ErrorHandler::handleError(403, "Forbidden", config);
+        return result;
     }
     
     if (!config.redirect_to.empty() && config.redirect_code > 0)
@@ -119,13 +121,15 @@ Response routeRequest(const Request &req, const LocationConfig &config)
                      (config.redirect_code == 307) ? "Temporary Redirect" : "Redirect";
         res.headers["Location"] = config.redirect_to;
         res.headers["Content-Length"] = "0";
-        return res;
+        result.response = res;
+        return result;
     }
     
     // Check method restrictions BEFORE processing uploads or any other handler
     if (!config.methods.empty() && config.methods.find(req.method) == config.methods.end())
     {
-        return ErrorHandler::handleError(405, "Method Not Allowed", config);
+        result.response = ErrorHandler::handleError(405, "Method Not Allowed", config);
+        return result;
     }
 
     if (req.method == "POST" || req.method == "PUT")
@@ -133,7 +137,8 @@ Response routeRequest(const Request &req, const LocationConfig &config)
         if (config.upload_enable)
         {
             size_t maxBodySize = config.max_body_size;
-            return UploadHandler::handleUploadReq(req, config, maxBodySize);
+            result.response = UploadHandler::handleUploadReq(req, config, maxBodySize);
+            return result;
         }
     }
     
@@ -168,13 +173,15 @@ Response routeRequest(const Request &req, const LocationConfig &config)
     // Check for path traversal attacks
     if (!isPathSafe(fullPath, config.root))
     {
-        return ErrorHandler::handleError(403, "Forbidden", config);
+        result.response = ErrorHandler::handleError(403, "Forbidden", config);
+        return result;
     }
     
     struct stat st;
     if (stat(fullPath.c_str(), &st) != 0)
     {
-        return ErrorHandler::handleError(404, "Not Found", config);
+        result.response = ErrorHandler::handleError(404, "Not Found", config);
+        return result;
     }
     
     if (config.is_cgi || S_ISREG(st.st_mode))
@@ -188,15 +195,21 @@ Response routeRequest(const Request &req, const LocationConfig &config)
                 // CGI scripts only allow GET and POST methods
                 if (req.method != "GET" && req.method != "POST")
                 {
-                    return ErrorHandler::handleError(405, "Method Not Allowed", config);
+                    result.response = ErrorHandler::handleError(405, "Method Not Allowed", config);
+                    return result;
                 }
-                return CGIHandler::handleCGIReq(req, config, fullPath);
+                result.isCgi = true;
+                result.cgiPath = fullPath;
+                return result;
             }
         }
     }
 
     if (req.method == "POST" || req.method == "PUT")
-        return ErrorHandler::handleError(405, "Method Not Allowed", config);
+    {
+        result.response = ErrorHandler::handleError(405, "Method Not Allowed", config);
+        return result;
+    }
     
     if (S_ISDIR(st.st_mode))
     {
@@ -211,19 +224,23 @@ Response routeRequest(const Request &req, const LocationConfig &config)
             if (stat(indexPath.c_str(), &indexSt) == 0 && S_ISREG(indexSt.st_mode))
             {
                 // Call the simple handleStaticReq with the already-resolved path
-                return StaticHandler::handleStaticReq(indexPath);
+                result.response = StaticHandler::handleStaticReq(indexPath);
+                return result;
             }
             
             if (config.autoindex)
             {
-                return DirectoryHandler::handle(fullPath, req.path);
+                result.response = DirectoryHandler::handle(fullPath, req.path);
+                return result;
             }
-            
-            return ErrorHandler::handleError(403, "Forbidden", config);
+
+            result.response = ErrorHandler::handleError(403, "Forbidden", config);
+            return result;
         }
         else
         {
-            return ErrorHandler::handleError(405, "Method Not Allowed", config);
+            result.response = ErrorHandler::handleError(405, "Method Not Allowed", config);
+            return result;
         }
     }
     
@@ -232,7 +249,8 @@ Response routeRequest(const Request &req, const LocationConfig &config)
         if (req.method == "GET")
         {
             // Call the simple handleStaticReq with the already-resolved path
-            return StaticHandler::handleStaticReq(fullPath);
+            result.response = StaticHandler::handleStaticReq(fullPath);
+            return result;
         }
         else if (req.method == "DELETE")
         {
@@ -242,11 +260,14 @@ Response routeRequest(const Request &req, const LocationConfig &config)
                 res.status = 204;
                 res.reason = "No Content";
                 res.headers["Content-Length"] = "0";
-                return res;
+                result.response = res;
+                return result;
             }
-            return ErrorHandler::handleError(500, "Internal Server Error", config);
+            result.response = ErrorHandler::handleError(500, "Internal Server Error", config);
+            return result;
         }
     }
-    
-    return ErrorHandler::handleError(500, "Internal Server Error", config);
+
+    result.response = ErrorHandler::handleError(500, "Internal Server Error", config);
+    return result;
 }

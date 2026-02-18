@@ -163,9 +163,7 @@ std::string readWithTimeout(int fd, pid_t pid, int timeoutSeconds)
         ssize_t bytesRead = read(fd, buffer, sizeof(buffer));
         if (bytesRead > 0)
             output.append(buffer, bytesRead);
-        else if (bytesRead == 0)
-            break;
-        else if (errno != EAGAIN && errno != EINTR)
+        else
             break;
     }
 
@@ -178,6 +176,16 @@ void closePipes(int inPipe[2], int outPipe[2])
 	close(inPipe[1]);
 	close(outPipe[0]);
 	close(outPipe[1]);
+}
+
+static bool setNonBlockingFd(int fd)
+{
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags < 0)
+		return false;
+	if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
+		return false;
+	return true;
 }
 
 Response buildCgiRes(size_t headerEnd, std::string cgiOutput, const std::string &scriptPath)
@@ -230,6 +238,141 @@ Response buildCgiRes(size_t headerEnd, std::string cgiOutput, const std::string 
 		len << res.body.size();
 		res.headers["Content-Length"] = len.str();
 		return res;
+}
+
+Response CGIHandler::buildCgiResponse(const std::string &cgiOutput, const std::string &scriptPath)
+{
+	size_t headerEnd = cgiOutput.find("\r\n\r\n");
+	if (headerEnd == std::string::npos)
+		headerEnd = cgiOutput.find("\n\n");
+	return buildCgiRes(headerEnd, cgiOutput, scriptPath);
+}
+
+bool CGIHandler::startCgiProcess(const Request &req,
+								const LocationConfig &config,
+								const std::string &scriptPath,
+								CgiProcess &proc,
+								Response &errorRes)
+{
+	int inPipe[2];
+	int outPipe[2];
+
+	struct stat st;
+	if (stat(scriptPath.c_str(), &st) != 0)
+	{
+		errorRes = ErrorHandler::handleError(404, "Not Found", config);
+		return false;
+	}
+	if (!S_ISREG(st.st_mode))
+	{
+		errorRes = ErrorHandler::handleError(403, "Forbidden", config);
+		return false;
+	}
+
+	if (access(scriptPath.c_str(), R_OK) != 0)
+	{
+		errorRes = ErrorHandler::handleError(403, "Forbidden", config);
+		return false;
+	}
+
+	if (!isExecutable(scriptPath))
+	{
+		errorRes = ErrorHandler::handleError(403, "Forbidden", config);
+		return false;
+	}
+
+	std::string exten = getFileExt(scriptPath, config);
+	if (exten.empty())
+	{
+		errorRes = ErrorHandler::handleError(500, "Internal Server Error", config);
+		return false;
+	}
+	if (stat(exten.c_str(), &st) != 0)
+	{
+		errorRes = ErrorHandler::handleError(500, "Internal Server Error", config);
+		return false;
+	}
+
+	std::vector<std::string> envVars = buildEnvVars(req, scriptPath, config);
+	char **envArray = envToArray(envVars);
+
+	if (pipe(inPipe) == -1 || pipe(outPipe) == -1)
+	{
+		freeEnvArray(envArray);
+		errorRes = ErrorHandler::handleError(500, "Internal Server Error", config);
+		return false;
+	}
+
+	pid_t pid = fork();
+	if (pid == -1)
+	{
+		closePipes(inPipe, outPipe);
+		freeEnvArray(envArray);
+		errorRes = ErrorHandler::handleError(500, "Internal Server Error", config);
+		return false;
+	}
+
+	if (pid == 0)
+	{
+		dup2(inPipe[0], STDIN_FILENO);
+		dup2(outPipe[1], STDOUT_FILENO);
+		dup2(outPipe[1], STDERR_FILENO);
+
+		closePipes(inPipe, outPipe);
+		char resolvedScriptPath[PATH_MAX];
+		if (realpath(scriptPath.c_str(), resolvedScriptPath) == NULL)
+			_exit(127);
+		std::string absScriptPath(resolvedScriptPath);
+		size_t lastSlash = absScriptPath.find_last_of('/');
+		if (lastSlash != std::string::npos)
+		{
+			std::string scriptDir = absScriptPath.substr(0, lastSlash);
+			chdir(scriptDir.c_str());
+		}
+		char *argv[3];
+		if (exten.empty())
+		{
+			argv[0] = const_cast<char*>(absScriptPath.c_str());
+			argv[1] = NULL;
+			execve(absScriptPath.c_str(), argv, envArray);
+		}
+		else
+		{
+			argv[0] = const_cast<char*>(exten.c_str());
+			argv[1] = const_cast<char*>(absScriptPath.c_str());
+			argv[2] = NULL;
+			execve(exten.c_str(), argv, envArray);
+		}
+		_exit(127);
+	}
+
+	close(inPipe[0]);
+	close(outPipe[1]);
+
+	if (!setNonBlockingFd(inPipe[1]) || !setNonBlockingFd(outPipe[0]))
+	{
+		close(inPipe[1]);
+		close(outPipe[0]);
+		kill(pid, SIGKILL);
+		int status;
+		waitpid(pid, &status, 0);
+		freeEnvArray(envArray);
+		errorRes = ErrorHandler::handleError(500, "Internal Server Error", config);
+		return false;
+	}
+
+	proc.inFd = inPipe[1];
+	proc.outFd = outPipe[0];
+	proc.pid = pid;
+	proc.input = req.body;
+	proc.inputOffset = 0;
+	proc.output.clear();
+	proc.startTime = std::time(NULL);
+	proc.timeoutSec = 30;
+	proc.scriptPath = scriptPath;
+
+	freeEnvArray(envArray);
+	return true;
 }
 
 

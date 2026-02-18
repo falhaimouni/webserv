@@ -9,6 +9,15 @@
 #include "../shared/Response.hpp"
 #include "../shared/LocationConfig.hpp"
 
-Response routeRequest(const Request &req, const LocationConfig &config);
+struct RouteResult
+{
+	bool isCgi;
+	std::string cgiPath;
+	Response response;
+
+	RouteResult() : isCgi(false), cgiPath(""), response() {}
+};
+
+RouteResult routeRequest(const Request &req, const LocationConfig &config);
 
 #endif
