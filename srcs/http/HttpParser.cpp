@@ -82,18 +82,15 @@ bool HttpParser::parseRequestLine()
         errorStatus = HTTP_VERSION_NOT_SUPPORTED; //505
         return true;
     }
-
     if (!validateMethod())
     {
         state = ERROR;
-        errorStatus = HTTP_METHOD_NOT_ALLOWED; //405
+        errorStatus = HTTP_NOT_IMPLEMENTED; //501
         return true;
     }
-
     state = HEADERS;
     return true;
 }
-
 
 bool HttpParser::parseHeaders()
 {
@@ -120,7 +117,7 @@ bool HttpParser::parseHeaders()
 
         std::string line = buffer.substr(0, sep);
         buffer.erase(0, sep + 2);
-    
+
         if (line.empty()) //end of headers
         {
             if (isChunked)
@@ -128,7 +125,7 @@ bool HttpParser::parseHeaders()
                 state = BODY;
                 return true;
             }
-            // Check if ANY method has Content-Length
+            //content length exist
             if (request.headers.count("content-length"))
             {
                 long long contentlength;
@@ -136,26 +133,25 @@ bool HttpParser::parseHeaders()
                 if (!(iss >> contentlength) || contentlength < 0 || !iss.eof())
                 {
                     state = ERROR;
-                    errorStatus = HTTP_BAD_REQUEST;
+                    errorStatus = HTTP_BAD_REQUEST; //400
                     return true;
                 }
-                state = BODY;
-            }
-            else
-            {
-                // No Content-Length header - for POST, treat as empty body (0 length)
-                // For other methods, no body is expected
-                if (request.method == "POST")
-                {
-                    // Set content-length to 0 for POST/PUT without Content-Length header
-                    request.headers["content-length"] = "0";
-                    state = COMPLETE;
-                }
+                if (contentlength > 0)
+                    state = BODY;
                 else
-                {
                     state = COMPLETE;
-                }
+                return true;
             }
+            //POST without content length 411
+            // For other methods, no body is expected
+            if (request.method == "POST")
+            {
+                state = ERROR;
+                errorStatus = HTTP_LENGTH_REQUIRED; //411
+                return true;
+            }
+
+            state = COMPLETE;
             return true;
         }
         //normal header line
@@ -187,15 +183,14 @@ bool HttpParser::parseHeaders()
 
         for (size_t i = 0; i < key.size(); ++i)
             key[i] = std::tolower(static_cast<unsigned char>(key[i]));
-        
+
         if (request.headers.find(key) == request.headers.end()) //in case of duplicate headers keep first
             request.headers[key] = value;
-        
+
         if (key == "transfer-encoding" && value.find("chunked") != std::string::npos)
             isChunked = true;
-    }
+        }
 }
-
 //Read exactly Content-Length bytes
 bool HttpParser::parseBody()
 {
