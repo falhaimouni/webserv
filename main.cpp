@@ -169,8 +169,9 @@ struct CgiTask
     CGIHandler::CgiProcess proc;
     int clientFd;
     LocationConfig config;
+    std::string httpVersion;
 
-    CgiTask() : clientFd(-1), config() {}
+    CgiTask() : clientFd(-1), config(), httpVersion("HTTP/1.0") {}
 };
 
 static void cleanupCgiTask(int clientFd,
@@ -289,7 +290,7 @@ int main(int argc, char **argv)
             {
                 Response timeoutRes = ErrorHandler::handleError(504, "Gateway Timeout", task.config);
                 std::string sessionId = clientManager.getSessionID(clientFd);
-                pendingResponses[clientFd] = ResponseBuilder::formatResponse(timeoutRes, "HTTP/1.0", sessionId);
+                pendingResponses[clientFd] = ResponseBuilder::formatResponse(timeoutRes, task.httpVersion, sessionId);
                 poller.setEvents(clientFd, POLLOUT);
 
                 std::map<int, CgiTask>::iterator next = it;
@@ -370,7 +371,7 @@ int main(int argc, char **argv)
                             res = CGIHandler::buildCgiResponse(task.proc.output, task.proc.scriptPath);
 
                         std::string sessionId = clientManager.getSessionID(clientFd);
-                        pendingResponses[clientFd] = ResponseBuilder::formatResponse(res, "HTTP/1.0", sessionId);
+                        pendingResponses[clientFd] = ResponseBuilder::formatResponse(res, task.httpVersion, sessionId);
                         poller.setEvents(clientFd, POLLOUT);
 
                         cleanupCgiTask(clientFd, poller, cgiTasks, cgiFdToClient, false);
@@ -482,6 +483,7 @@ int main(int argc, char **argv)
                                     task.clientFd = fd;
                                     task.config = *loc;
                                     task.proc = proc;
+                                    task.httpVersion = httpVersion;
                                     cgiTasks[fd] = task;
 
                                     poller.setEvents(fd, 0);
