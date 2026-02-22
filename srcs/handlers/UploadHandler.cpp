@@ -179,6 +179,10 @@ Response UploadHandler::handleUploadReq(const Request &req, const LocationConfig
         uploadPath += "/";
     uploadPath += filename;
 
+    std::cerr << uploadPath << "\n";
+    std::cerr << config.upload_store << "\n";
+
+
     int fd = open(uploadPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0)
         return ErrorHandler::handleError(500, "Internal Server Error", config);

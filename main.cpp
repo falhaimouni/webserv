@@ -107,14 +107,8 @@ static void normalizeServerConfigs(std::vector<ServerConfig> &servers)
                     servers[i].locations[j].methods.insert("POST");
                 servers[i].locations[j].upload_enable = true;
             }
-            // Enable upload_enable for any location that allows POST method
-            if (servers[i].locations[j].methods.find("POST") != servers[i].locations[j].methods.end() &&
-                !servers[i].locations[j].upload_enable)
-            {
-                servers[i].locations[j].upload_enable = true;
-                if (servers[i].locations[j].upload_store.empty())
-                    servers[i].locations[j].upload_store = servers[i].root + "/uploads";
-            }
+            // Do NOT auto-enable upload_enable for all POST locations
+            // Only explicit upload_enable in config should enable uploads
             if (servers[i].locations[j].path == "/static")
                 hasStaticLocation = true;
             if (servers[i].locations[j].path == "/redirect")
