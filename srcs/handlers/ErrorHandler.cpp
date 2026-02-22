@@ -8,7 +8,24 @@ std::string ErrorHandler::getErrorPagePath(int status, const LocationConfig &con
 {
     std::map<int, std::string>::const_iterator it = config.error_pages.find(status);
     if (it != config.error_pages.end())
-        return config.root + it->second;
+    {
+        // If error page path starts with ./ or is absolute, use it as-is
+        // Otherwise, prepend root
+        const std::string &errorPath = it->second;
+        if (errorPath.size() >= 2 && errorPath[0] == '.' && errorPath[1] == '/')
+            return errorPath;
+        if (!errorPath.empty() && errorPath[0] == '/')
+        {
+            // Absolute path from root
+            std::string result = config.root;
+            if (!result.empty() && result[result.size() - 1] != '/')
+                result += "/";
+            result += errorPath.substr(1); // Skip leading /
+            return result;
+        }
+        // Relative path - prepend root
+        return config.root + "/" + errorPath;
+    }
     return "";
 }
 
