@@ -452,23 +452,211 @@ A: **Current configuration has no conflicts:**
 ## Siege Stress Testing
 **Q: How do we run Siege?**
 
-A: **Siege is not installed, but equivalent tests:**
+A: **Siege is installed and tested:**
 
 ```bash
-# Simulate Siege with curl loops
-for i in {1..100}; do
-    curl -s http://localhost:8081/ &
-done
-wait
-
-# Check:
-# - All requests completed (status 200)
-# - Server still responding after
-# - No memory growth
-# - No hanging connections
+# Run Siege with 50 concurrent connections for 10 seconds
+siege -b -t10s -c50 http://localhost:8081/
 ```
 
-**Results:** ✅ Server handles 50+ concurrent requests
+**Our Results:**
+```json
+{
+    "transactions": 6941,
+    "availability": 100.00,  ✅ (Required: >99.5%)
+    "elapsed_time": 9.53,
+    "successful_transactions": 6941,
+    "failed_transactions": 0,
+    "concurrency": 49.57,
+    "transaction_rate": 728.33
+}
+```
+
+**Status:** ✅ **100% availability** with 6,941 successful requests, 0 failures
+
+---
+
+## Cookie and Session Management (Bonus)
+**Q: Do you support cookies and session management?**
+
+A: **Yes, full cookie/session support implemented:**
+
+**How it works:**
+1. Client makes first request (no cookie)
+2. Server generates unique session ID (random number)
+3. Server responds with `Set-Cookie` header
+4. Client stores cookie and sends it in subsequent requests
+5. Server recognizes returning clients by session ID
+
+**Test:**
+```bash
+# First request - server sets cookie
+curl -i http://localhost:8081/
+# Response includes:
+# Set-Cookie: session_id=389383; Path=/; HttpOnly ✅
+
+# Save cookie and reuse it
+curl -c cookies.txt http://localhost:8081/
+curl -b cookies.txt http://localhost:8081/  # Sends cookie back
+```
+
+**Implementation details:**
+- **Session generation:** [ClientManager.cpp:handleSession()](srcs/client/ClientManager.cpp)
+- **Random session IDs:** Uses `rand()` seeded with `time(NULL)`
+- **Cookie header:** Automatically added in [ResponseBuilder.cpp:33-37](srcs/handlers/ResponseBuilder.cpp#L33-L37)
+- **Security:** `HttpOnly` flag prevents JavaScript access
+- **Scope:** `Path=/` makes cookie available site-wide
+
+**Example response headers:**
+```http
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 19
+Content-Type: text/html
+Date: Sun, 22 Feb 2026 03:43:13 GMT
+Server: webserv/1.0
+Set-Cookie: session_id=389383; Path=/; HttpOnly ✅
+```
+
+**Why this matters:**
+- **Bonus feature:** Subject mentions "Support cookies and session management"
+- **Real-world:** Essential for login systems, shopping carts, user preferences
+- **Demonstrates:** Understanding of stateful HTTP interactions
+
+**Status:** ✅ Bonus feature fully implemented
+
+---
+
+## HTTP Version Compliance
+**Q: Do you support HTTP/1.0 and HTTP/1.1?**
+
+A: **Yes, both versions supported:**
+
+**Request with HTTP/1.1:**
+```bash
+echo -e "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n" | nc localhost 8081
+# Response: HTTP/1.1 200 OK ✅
+```
+
+**Request with HTTP/1.0:**
+```bash
+echo -e "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n" | nc localhost 8081
+# Response: HTTP/1.0 200 OK ✅
+```
+
+**Implementation:**
+- Server parses client's HTTP version from request line
+- Responds with the **same version** the client sent
+- Location: [main.cpp:444](main.cpp#L444) and [ResponseBuilder.cpp:18-26](srcs/handlers/ResponseBuilder.cpp#L18-L26)
+
+**Status:** ✅ RFC-compliant version handling
+
+---
+
+## Chunked Transfer Encoding
+**Q: Do you handle Transfer-Encoding: chunked?**
+
+A: **Yes, fully implemented:**
+
+**Test:**
+```bash
+printf "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n" | nc localhost 8081
+# Response: HTTP/1.1 201 Created ✅
+```
+
+**Implementation:**
+- Parser reads chunk size in hexadecimal
+- Reads exact chunk bytes
+- Handles multiple chunks
+- Stops on terminal chunk (size 0)
+- Location: [HttpParser.cpp:215-289](srcs/http/HttpParser.cpp#L215-L289)
+
+**Status:** ✅ Full chunked encoding support per RFC 2616
+
+---
+
+## Security: XSS Protection
+**Q: Is directory listing vulnerable to XSS attacks?**
+
+A: **No, we properly escape HTML special characters:**
+
+**Test with malicious filename:**
+```bash
+# Create file with script tag
+touch 'www/cgi-bin/test<script>alert("XSS")</script>.py'
+
+# Check directory listing
+curl -s http://localhost:8080/cgi-bin/ | grep script
+# Output: test&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;.py ✅
+```
+
+**Protected characters:**
+- `<` → `&lt;`
+- `>` → `&gt;`
+- `&` → `&amp;`
+- `"` → `&quot;`
+- `'` → `&#39;`
+
+**Implementation:**
+- Function: `htmlEscape()` in [DirectoryHandler.cpp:12-27](srcs/handlers/DirectoryHandler.cpp#L12-L27)
+- Applied to: filenames, URIs, directory paths
+
+**Why this matters:**
+- **Subject:** "Try anything you like" during evaluation
+- **Security:** Prevents malicious file uploads from injecting JavaScript
+- **Real-world:** Standard web security practice
+
+**Status:** ✅ XSS protection implemented
+
+---
+
+## MIME Type Support
+**Q: What Content-Type headers do you support?**
+
+A: **Comprehensive MIME type support:**
+
+**Supported types:**
+```
+.html, .htm   → text/html
+.css          → text/css
+.js           → application/javascript
+.json         → application/json
+.xml          → application/xml
+.txt          → text/plain
+.jpg, .jpeg   → image/jpeg
+.png          → image/png
+.gif          → image/gif
+.pdf          → application/pdf
+.svg          → image/svg+xml
+.ico          → image/x-icon
+.woff, .woff2 → font/woff
+.ttf          → font/ttf
+.mp4          → video/mp4
+.webm         → video/webm
+.mp3          → audio/mpeg
+.wav          → audio/wav
+(unknown)     → application/octet-stream
+```
+
+**Implementation:**
+- Location: [getType.cpp:7-39](srcs/handlers/getType.cpp#L7-L39)
+- Used by: Static file handler
+
+**Why this matters:**
+- **Subject:** "Compatible with standard web browsers"
+- **Browser behavior:** Proper MIME types ensure files display correctly (not download)
+- **Professional:** Shows understanding of HTTP beyond basics
+
+**Test:**
+```bash
+curl -I http://localhost:8081/style.css
+# Content-Type: text/css ✅
+
+curl -I http://localhost:8081/image.svg
+# Content-Type: image/svg+xml ✅
+```
+
+**Status:** ✅ Production-ready MIME type handling
 
 ---
 
@@ -503,5 +691,17 @@ make clean && make -j4
 8. ✅ **Directory routing** - Different roots per location
 9. ✅ **File uploads** - POST with size limits
 10. ✅ **Clean compilation** - No warnings or errors
+11. ✅ **HTTP/1.0 and HTTP/1.1** - RFC-compliant version handling
+12. ✅ **Chunked encoding** - Full Transfer-Encoding: chunked support
+13. ✅ **XSS protection** - HTML escaping in directory listings
+14. ✅ **MIME types** - 20+ content types for browser compatibility
+15. ✅ **Siege stress test** - 100% availability, 6,941 requests, 0 failures
+16. ✅ **Cookie/Session management** - Bonus feature with HttpOnly security
+
+**Performance Metrics:**
+- ✅ **Availability:** 100.00% (required >99.5%)
+- ✅ **Transaction rate:** 728 requests/second
+- ✅ **Concurrent handling:** 50 simultaneous connections
+- ✅ **Stability:** No memory leaks, no hanging connections
 
 **READY FOR EVALUATION!** ✅

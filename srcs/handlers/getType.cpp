@@ -29,6 +29,24 @@ std::string getType::getMimeType(const std::string &filePath)
         return "application/json";
     else if (ext == "xml")
         return "application/xml";
+    else if (ext == "pdf")
+        return "application/pdf";
+    else if (ext == "svg")
+        return "image/svg+xml";
+    else if (ext == "ico")
+        return "image/x-icon";
+    else if (ext == "woff" || ext == "woff2")
+        return "font/woff";
+    else if (ext == "ttf")
+        return "font/ttf";
+    else if (ext == "mp4")
+        return "video/mp4";
+    else if (ext == "webm")
+        return "video/webm";
+    else if (ext == "mp3")
+        return "audio/mpeg";
+    else if (ext == "wav")
+        return "audio/wav";
     else
         return "application/octet-stream";
 }

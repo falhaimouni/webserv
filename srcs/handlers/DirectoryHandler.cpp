@@ -9,6 +9,25 @@
 
 typedef struct stat StatInfo;
 
+static std::string htmlEscape(const std::string &str)
+{
+    std::string escaped;
+    escaped.reserve(str.size());
+    for (size_t i = 0; i < str.size(); ++i)
+    {
+        switch (str[i])
+        {
+            case '&':  escaped += "&amp;";  break;
+            case '"':  escaped += "&quot;"; break;
+            case '\'': escaped += "&#39;";  break;
+            case '<':  escaped += "&lt;";   break;
+            case '>':  escaped += "&gt;";   break;
+            default:   escaped += str[i];    break;
+        }
+    }
+    return escaped;
+}
+
 static std::string formatFileSize(long size)
 {
     std::ostringstream oss;
@@ -58,7 +77,7 @@ Response DirectoryHandler::handle(const std::string &path, const std::string &ur
          << "<html>\n"
          << "<head>\n"
          << "    <meta charset=\"UTF-8\">\n"
-         << "    <title>Index of " << uri << "</title>\n"
+         << "    <title>Index of " << htmlEscape(uri) << "</title>\n"
          << "    <style>\n"
          << "        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }\n"
          << "        .container { max-width: 900px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }\n"
@@ -76,7 +95,7 @@ Response DirectoryHandler::handle(const std::string &path, const std::string &ur
          << "</head>\n"
          << "<body>\n"
          << "    <div class=\"container\">\n"
-         << "        <h1>Index of " << uri << "</h1>\n"
+         << "        <h1>Index of " << htmlEscape(uri) << "</h1>\n"
          << "        <table>\n"
          << "            <thead>\n"
          << "                <tr>\n"
@@ -156,9 +175,9 @@ Response DirectoryHandler::handle(const std::string &path, const std::string &ur
             linkUri += "/";
 
         body << "                <tr>\n"
-             << "                    <td><a href=\"" << linkUri << "\">"
+             << "                    <td><a href=\"" << htmlEscape(linkUri) << "\">"
              << "<span class=\"icon\">" << (isDir ? "📁" : "📄") << "</span>"
-             << name << (isDir ? "/" : "") << "</a></td>\n"
+             << htmlEscape(name) << (isDir ? "/" : "") << "</a></td>\n"
              << "                    <td class=\"size\">" << (isDir ? "-" : formatFileSize(st.st_size)) << "</td>\n"
              << "                    <td class=\"date\">" << formatDate(st.st_mtime) << "</td>\n"
              << "                </tr>\n";
