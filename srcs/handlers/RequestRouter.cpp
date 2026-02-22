@@ -168,15 +168,11 @@ RouteResult routeRequest(const Request &req, const LocationConfig &config)
     }
     
     struct stat st;
-    if (stat(fullPath.c_str(), &st) != 0)
-    {
-        result.response = ErrorHandler::handleError(404, "Not Found", config);
-        return result;
-    }
+    bool fileExists = (stat(fullPath.c_str(), &st) == 0);
     
-    // **CGI DETECTION FIRST** - before upload handler
+    // **CGI DETECTION FIRST** - check if this is a CGI script before anything else
     // This ensures CGI scripts are handled as CGI, not as file uploads
-    if (config.is_cgi || S_ISREG(st.st_mode))
+    if (fileExists && (config.is_cgi || S_ISREG(st.st_mode)))
     {
         size_t dotPos = fullPath.rfind('.');
         if (dotPos != std::string::npos)
@@ -196,8 +192,8 @@ RouteResult routeRequest(const Request &req, const LocationConfig &config)
             }
         }
     }
-
-    // **UPLOAD HANDLER** - after CGI check
+    
+    // **UPLOAD HANDLER** - allow POST to non-existent paths for file creation
     if (req.method == "POST")
     {
         if (config.upload_enable)
@@ -207,13 +203,14 @@ RouteResult routeRequest(const Request &req, const LocationConfig &config)
             return result;
         }
     }
-
-    if (req.method == "POST")
+    
+    // File must exist for non-upload requests
+    if (!fileExists)
     {
-        result.response = ErrorHandler::handleError(405, "Method Not Allowed", config);
+        result.response = ErrorHandler::handleError(404, "Not Found", config);
         return result;
     }
-    
+
     if (S_ISDIR(st.st_mode))
     {
         if (req.method == "GET")
