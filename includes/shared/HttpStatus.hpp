@@ -5,12 +5,20 @@
 #define HTTP_CREATED                201
 #define HTTP_NO_CONTENT             204
 
+#define HTTP_MOVED_PERMANENTLY      301
+
 #define HTTP_BAD_REQUEST            400
+#define HTTP_LENGTH_REQUIRED        411
+#define HTTP_PAYLOAD_TOO_LARGE      413
+#define HTTP_REQUEST_URI_TOO_LONG   414
 #define HTTP_FORBIDDEN              403
 #define HTTP_NOT_FOUND              404
 #define HTTP_METHOD_NOT_ALLOWED     405
+#define HTTP_REQUEST_HEADER_FIELDS_TOO_LARGE 431
 
 #define HTTP_INTERNAL_SERVER_ERROR  500
+#define HTTP_NOT_IMPLEMENTED 501
+#define HTTP_VERSION_NOT_SUPPORTED  505
 
 #endif
 
