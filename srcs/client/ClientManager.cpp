@@ -57,7 +57,10 @@ const Request& ClientManager::getRequest(int fd) const
     std::map<int, ClientState>::const_iterator it = clients.find(fd);
     if (hasRequest(fd))
     {
-        return (it->second.parser.getRequest());
+        // Get the request from parser and add client address
+        Request& req = const_cast<Request&>(it->second.parser.getRequest());
+        req.clientAddr = it->second.clientAddr;
+        return req;
     }
     //empty request if it is not completed or exists
     return (empty);
@@ -142,4 +145,10 @@ void ClientManager::clientClosed(int fd)
     long long contentLength = parser.getContentLength();
     if (contentLength > 0 && parser.getBodySize() < (size_t)contentLength)
         parser.forceError(HTTP_BAD_REQUEST);
+}
+
+void ClientManager::setClientAddr(int fd, const std::string& addr)
+{
+    if (clients.count(fd))
+        clients[fd].clientAddr = addr;
 }

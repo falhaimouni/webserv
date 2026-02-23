@@ -19,7 +19,7 @@ private:
     static char** envToArray(const std::vector<std::string> &envVars);
     static void freeEnvArray(char **envArray);
     static std::string readFromPipe(int fd, int timeoutSeconds);
-    static bool isExecutable(const std::string &path);
+    static bool isExecutable(const std::string &path, bool useInterpreter);
     
 public:
     struct CgiProcess
@@ -45,8 +45,6 @@ public:
                                 CgiProcess &proc,
                                 Response &errorRes);
     static Response buildCgiResponse(const std::string &cgiOutput, const std::string &scriptPath);
-    static Response handleCGIReq(const std::string &scriptPath, const std::string &input);
-    static Response handleCGIReq(const Request &req, const LocationConfig &config, const std::string &scriptPath);
 };
 
 

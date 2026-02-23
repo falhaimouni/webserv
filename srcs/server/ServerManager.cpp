@@ -22,7 +22,7 @@
 #include <fcntl.h>
 
 
-ServerManager::ServerManager() : _listenFd(-1) {}
+ServerManager::ServerManager() : _listenFd(-1), _lastClientAddr("") {}
 
 ServerManager::~ServerManager() {
     if (_listenFd != -1)
@@ -122,6 +122,9 @@ int ServerManager::acceptClient()
     if (clientFd < 0)
         return -1;
 
+    // Extract and store client IP address
+    _lastClientAddr = inet_ntoa(clientAddr.sin_addr);
+
     if (!setNonBlocking(clientFd))
     {
         Logger::error("Failed to set client socket non-blocking");
@@ -131,4 +134,9 @@ int ServerManager::acceptClient()
 
     Logger::info(std::string("Accepted client fd=") + Logger::toStringInt(clientFd));
     return clientFd;
+}
+
+std::string ServerManager::getLastClientAddr() const
+{
+    return _lastClientAddr;
 }

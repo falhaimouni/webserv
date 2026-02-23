@@ -438,7 +438,6 @@ int main(int argc, char **argv)
                         clientManager.handleSession(fd);
                         const Request &req = clientManager.getRequest(fd);
                         httpVersion = req.version.empty() ? "HTTP/1.0" : req.version;
-
                         int routeStatus = 0;
                         const LocationConfig *loc = router.route(req, srv.locations, routeStatus);
                         if (!loc)

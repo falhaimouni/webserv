@@ -49,11 +49,17 @@ std::string CGIHandler::getFileExt(const std::string &scriptPath, const Location
 	return "";
 }
 
-bool CGIHandler::isExecutable(const std::string &path)
+bool CGIHandler::isExecutable(const std::string &path, bool useInterpreter)
 {
 	struct stat st;
 	if (stat(path.c_str(), &st) != 0)
 		return false;
+	
+	// If using an interpreter (Python, Bash, etc.), only need read permission
+	if (useInterpreter)
+		return access(path.c_str(), R_OK) == 0;
+	
+	// If direct execution, need execute permission
 	return access(path.c_str(), X_OK) == 0;
 }
 
@@ -63,37 +69,85 @@ std::vector<std::string> CGIHandler::buildEnvVars(const Request &req, const std:
 	std::vector<std::string> envVars;
 
 	envVars.push_back("REQUEST_METHOD=" + req.method);
-	std::string scriptName = req.path;
-    std::string pathInfo = req.path;
-    std::string queryString = "";
-    size_t queryPos = req.path.find('?');
-    if (queryPos != std::string::npos)
-    {
-        scriptName = req.path.substr(0, queryPos);
-        pathInfo = scriptName;
-        queryString = req.path.substr(queryPos + 1);
-    }
+	
+	// Extract SCRIPT_NAME and PATH_INFO from request path
+	std::string pathWithoutQuery = req.path;
+	std::string queryString = "";
+	size_t queryPos = req.path.find('?');
+	if (queryPos != std::string::npos)
+	{
+		pathWithoutQuery = req.path.substr(0, queryPos);
+		queryString = req.path.substr(queryPos + 1);
+	}
+	
+	// SCRIPT_NAME is the path to the script file
+	std::string scriptName = pathWithoutQuery;
+	std::string pathInfo = "";
+	
+	// Extract the script filename from the real path
+	std::string realPathStr = scriptPath;
+	size_t lastSlash = realPathStr.find_last_of('/');
+	std::string scriptFileName;
+	if (lastSlash != std::string::npos)
+		scriptFileName = realPathStr.substr(lastSlash);
+	
+	// Find where the script name ends in the request path
+	if (!scriptFileName.empty())
+	{
+		size_t scriptPos = pathWithoutQuery.find(scriptFileName);
+		if (scriptPos != std::string::npos)
+		{
+			scriptName = pathWithoutQuery.substr(0, scriptPos + scriptFileName.length());
+			if (scriptPos + scriptFileName.length() < pathWithoutQuery.length())
+				pathInfo = pathWithoutQuery.substr(scriptPos + scriptFileName.length());
+		}
+	}
+	
     envVars.push_back("SCRIPT_NAME=" + scriptName);
     envVars.push_back("PATH_INFO=" + pathInfo);
     envVars.push_back("QUERY_STRING=" + queryString);
+	
 	std::map<std::string, std::string>::const_iterator contentTypeIt = req.headers.find("content-type");
 	if (contentTypeIt != req.headers.end())
 		envVars.push_back("CONTENT_TYPE=" + contentTypeIt->second);
 	else
 		envVars.push_back("CONTENT_TYPE=");
 
-	std::ostringstream contentLength;
-	contentLength << req.body.size();
-	envVars.push_back("CONTENT_LENGTH=" + contentLength.str());
+	// Set CONTENT_LENGTH only for POST requests, empty for GET
+	if (req.method == "POST")
+	{
+		std::ostringstream contentLength;
+		contentLength << req.body.size();
+		envVars.push_back("CONTENT_LENGTH=" + contentLength.str());
+	}
+	else
+		envVars.push_back("CONTENT_LENGTH=");
 
-	envVars.push_back("SERVER_NAME=localhost");
-	envVars.push_back("SERVER_PORT=8080");
-	envVars.push_back("SERVER_PROTOCOL=HTTP/1.0");
+	// Extract SERVER_NAME and SERVER_PORT from Host header, or use defaults
+	std::string serverName = "localhost";
+	std::string serverPort = "8080";
+	std::map<std::string, std::string>::const_iterator hostIt = req.headers.find("host");
+	if (hostIt != req.headers.end())
+	{
+		std::string host = hostIt->second;
+		size_t colonPos = host.find(':');
+		if (colonPos != std::string::npos)
+		{
+			serverName = host.substr(0, colonPos);
+			serverPort = host.substr(colonPos + 1);
+		}
+		else
+			serverName = host;
+	}
+	
+	envVars.push_back("SERVER_NAME=" + serverName);
+	envVars.push_back("SERVER_PORT=" + serverPort);
+	envVars.push_back("SERVER_PROTOCOL=" + req.version);
 	envVars.push_back("SERVER_SOFTWARE=webserv/1.0");
 	envVars.push_back("REQUEST_URI=" + req.path);
 	envVars.push_back("GATEWAY_INTERFACE=CGI/1.1");
-	envVars.push_back("REMOTE_ADDR=127.0.0.1");
 	envVars.push_back("REMOTE_HOST=localhost");
+	envVars.push_back("REMOTE_ADDR=" + (req.clientAddr.empty() ? std::string("127.0.0.1") : req.clientAddr));
 	char resolvedPath[4096];
 	if (realpath(scriptPath.c_str(), resolvedPath) != NULL)
 		envVars.push_back("SCRIPT_FILENAME=" + std::string(resolvedPath));
@@ -145,15 +199,29 @@ std::string readWithTimeout(int fd, pid_t pid, int timeoutSeconds)
     pfd.fd = fd;
     pfd.events = POLLIN;
 
-    int timeoutMs = timeoutSeconds * 1000;
+    std::time_t startTime = std::time(NULL);
 
     while (true)
     {
-        int ret = poll(&pfd, 1, timeoutMs);
-        if (ret == 0)
+        // Check if total time has exceeded timeout
+        std::time_t elapsed = std::time(NULL) - startTime;
+        if (elapsed >= timeoutSeconds)
         {
             kill(pid, SIGKILL);
             throw std::runtime_error("CGI Timeout");
+        }
+        
+        // Calculate remaining time for this poll call
+        int remainingSeconds = timeoutSeconds - elapsed;
+        int pollTimeoutMs = (remainingSeconds > 0) ? (remainingSeconds * 1000) : 0;
+        if (pollTimeoutMs > 1000)
+            pollTimeoutMs = 1000; // Cap to 1 second per poll to allow checking elapsed time
+
+        int ret = poll(&pfd, 1, pollTimeoutMs);
+        if (ret == 0)
+        {
+            // Timeout in poll - continue loop to check total elapsed time
+            continue;
         }
         else if (ret < 0)
         {
@@ -269,27 +337,21 @@ bool CGIHandler::startCgiProcess(const Request &req,
 		return false;
 	}
 
-	if (access(scriptPath.c_str(), R_OK) != 0)
-	{
-		errorRes = ErrorHandler::handleError(403, "Forbidden", config);
-		return false;
-	}
-
-	if (!isExecutable(scriptPath))
-	{
-		errorRes = ErrorHandler::handleError(403, "Forbidden", config);
-		return false;
-	}
-
+	// Get interpreter (if any) - check this early
 	std::string exten = getFileExt(scriptPath, config);
-	if (exten.empty())
+	bool useInterpreter = !exten.empty();
+	
+	// If using interpreter, verify interpreter exists before checking script perms
+	if (useInterpreter && stat(exten.c_str(), &st) != 0)
 	{
 		errorRes = ErrorHandler::handleError(500, "Internal Server Error", config);
 		return false;
 	}
-	if (stat(exten.c_str(), &st) != 0)
+
+	// Check script permissions based on execution method
+	if (!isExecutable(scriptPath, useInterpreter))
 	{
-		errorRes = ErrorHandler::handleError(500, "Internal Server Error", config);
+		errorRes = ErrorHandler::handleError(403, "Forbidden", config);
 		return false;
 	}
 
@@ -314,6 +376,7 @@ bool CGIHandler::startCgiProcess(const Request &req,
 
 	if (pid == 0)
 	{
+		// Child process
 		dup2(inPipe[0], STDIN_FILENO);
 		dup2(outPipe[1], STDOUT_FILENO);
 		dup2(outPipe[1], STDERR_FILENO);
@@ -330,22 +393,23 @@ bool CGIHandler::startCgiProcess(const Request &req,
 			chdir(scriptDir.c_str());
 		}
 		char *argv[3];
-		if (exten.empty())
-		{
-			argv[0] = const_cast<char*>(absScriptPath.c_str());
-			argv[1] = NULL;
-			execve(absScriptPath.c_str(), argv, envArray);
-		}
-		else
+		if (useInterpreter)
 		{
 			argv[0] = const_cast<char*>(exten.c_str());
 			argv[1] = const_cast<char*>(absScriptPath.c_str());
 			argv[2] = NULL;
 			execve(exten.c_str(), argv, envArray);
 		}
+		else
+		{
+			argv[0] = const_cast<char*>(absScriptPath.c_str());
+			argv[1] = NULL;
+			execve(absScriptPath.c_str(), argv, envArray);
+		}
 		_exit(127);
 	}
 
+	// Parent process
 	close(inPipe[0]);
 	close(outPipe[1]);
 
@@ -371,127 +435,7 @@ bool CGIHandler::startCgiProcess(const Request &req,
 	proc.timeoutSec = 30;
 	proc.scriptPath = scriptPath;
 
+	// Free envArray in parent - child will have already exec'd or exited
 	freeEnvArray(envArray);
 	return true;
-}
-
-
-Response CGIHandler::handleCGIReq(const Request &req, const LocationConfig &config, const std::string &scriptPath)
-{
-	int inPipe[2];
-	int outPipe[2];
-
-    struct stat st;
-	if (stat(scriptPath.c_str(), &st) != 0)
-		return ErrorHandler::handleError(404, "Not Found", config);
-	if (!S_ISREG(st.st_mode))
-		return ErrorHandler::handleError(403, "Forbidden", config);
-	
-	// Check if file is readable
-	if (access(scriptPath.c_str(), R_OK) != 0)
-		return ErrorHandler::handleError(403, "Forbidden", config);
-
-	// CGI scripts must have execute permission
-	if (!isExecutable(scriptPath))
-		return ErrorHandler::handleError(403, "Forbidden", config);
-
-	std::string exten = getFileExt(scriptPath, config);
-	if (exten.empty())
-		return ErrorHandler::handleError(500, "Internal Server Error", config);
-	
-	if (stat(exten.c_str(), &st) != 0)
-		return ErrorHandler::handleError(500, "Internal Server Error", config);
-
-	std::vector<std::string> envVars = buildEnvVars(req, scriptPath, config);
-	char **envArray = envToArray(envVars);
-
-	if (pipe(inPipe) == -1 || pipe(outPipe) == -1)
-	{
-		freeEnvArray(envArray);
-		return ErrorHandler::handleError(500, "Internal Server Error", config);
-	}
-	pid_t pid = fork();
-	if (pid == -1)
-	{
-		closePipes(inPipe, outPipe);
-		freeEnvArray(envArray);
-		return ErrorHandler::handleError(500, "Internal Server Error", config);
-	}
-	if (pid == 0)
-	{
-		dup2(inPipe[0], STDIN_FILENO);
-		dup2(outPipe[1], STDOUT_FILENO);
-		dup2(outPipe[1], STDERR_FILENO);
-
-		closePipes(inPipe, outPipe);
-		char resolvedScriptPath[PATH_MAX];
-		if (realpath(scriptPath.c_str(), resolvedScriptPath) == NULL)
-			_exit(127);
-		std::string absScriptPath(resolvedScriptPath);
-		size_t lastSlash = absScriptPath.find_last_of('/');
-		if (lastSlash != std::string::npos)
-		{
-			std::string scriptDir = absScriptPath.substr(0, lastSlash);
-			chdir(scriptDir.c_str());
-		}
-		char *argv[3];
-		if (exten.empty())
-		{
-			argv[0] = const_cast<char*>(absScriptPath.c_str());
-			argv[1] = NULL;
-			execve(absScriptPath.c_str(), argv, envArray);
-		}
-		else
-		{
-			argv[0] = const_cast<char*>(exten.c_str());
-			argv[1] = const_cast<char*>(absScriptPath.c_str());
-			argv[2] = NULL;
-			execve(exten.c_str(), argv, envArray);
-		}
-		_exit(127);
-	}
-	else
-	{
-        int status;
-		close(inPipe[0]);
-		close(outPipe[1]);
-
-		size_t total = 0;
-        while (total < req.body.size())
-        {
-            ssize_t written = write(inPipe[1],
-                req.body.c_str() + total,
-                req.body.size() - total);
-
-            if (written <= 0)
-                break;
-
-            total += written;
-        }
-		close(inPipe[1]);
-        std::string cgiOutput;
-        try
-        {
-            cgiOutput = readWithTimeout(outPipe[0],pid, 30);
-        }
-        catch (...)
-        {
-            close(outPipe[0]);
-		    waitpid(pid, &status, 0);
-    		freeEnvArray(envArray);
-            return ErrorHandler::handleError(504, "Gateway Timeout", config);
-        }
-		close(outPipe[0]);
-		waitpid(pid, &status, 0);
-		freeEnvArray(envArray);
-		if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
-			return ErrorHandler::handleError(500, "Internal Server Error", config);
-		if (WIFSIGNALED(status))
-			return ErrorHandler::handleError(504, "Gateway Timeout", config);
-		size_t headerEnd = cgiOutput.find("\r\n\r\n");
-		if (headerEnd == std::string::npos)
-			headerEnd = cgiOutput.find("\n\n");
-		Response res = buildCgiRes(headerEnd, cgiOutput, scriptPath);
-        return res;
-	}
 }

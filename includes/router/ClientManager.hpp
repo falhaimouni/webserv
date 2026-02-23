@@ -12,6 +12,7 @@
 struct ClientState {
     HttpParser parser; //each client has its own parser
     std::string sessionID; //store session id for this client
+    std::string clientAddr; //client IP address
 };
 
 class ClientManager {
@@ -27,6 +28,7 @@ public:
     void handleSession(int fd); //call after request is fully parsed
     std::string getSessionID(int fd) const;
     void clientClosed(int fd);
+    void setClientAddr(int fd, const std::string& addr); // store client IP address
 
 private:
     std::map<int, ClientState> clients; //owner of all connected clients
